@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildSledModel, SledModel } from './sledModel';
+import { buildSledModel, poseSledModel, SledModel } from './sledModel';
 import type { World } from './world';
 import { clamp, lerp, wrapAngle } from './util';
 
@@ -39,6 +39,7 @@ export const SLED = {
   aLat: 32,
   turnMax: 1.8,
   grip: 6.5,
+  iceGrip: 1.5,
   radius: 1.15,
   boostSpeed: 1.26,
   boostAccel: 1.7,
@@ -229,7 +230,9 @@ export class Sled {
     else this.boost = Math.min(1, this.boost + (this.grounded ? P.boostRecharge : P.boostRecharge * 5) * dt);
 
     if (this.grounded) {
-      this.offTrack = Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
+      // Lake ice is slippery but open: no deep snow to bog down in.
+      const onIce = terrain.iceAt(pos.x, pos.z) > 0.5;
+      this.offTrack = !onIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : 1);
       const acc = P.accel * (this.boosting ? P.boostAccel : 1);
 
@@ -246,11 +249,11 @@ export class Sled {
       const e = 1.2;
       const gx = (terrain.height(pos.x + e, pos.z) - terrain.height(pos.x - e, pos.z)) / (2 * e);
       const gz = (terrain.height(pos.x, pos.z + e) - terrain.height(pos.x, pos.z - e)) / (2 * e);
-      const k = (-P.gravity * 0.55) / (1 + gx * gx + gz * gz);
+      const k = (-P.gravity * 0.85) / (1 + gx * gx + gz * gz);
       vf += (gx * fx + gz * fz) * k * dt;
       vl += (gx * lx + gz * lz) * k * dt;
 
-      vl *= Math.exp(-(this.offTrack ? 4 : P.grip) * dt);
+      vl *= Math.exp(-(onIce ? P.iceGrip : this.offTrack ? 4 : P.grip) * dt);
       vel.x = fx * vf + lx * vl;
       vel.z = fz * vf + lz * vl;
     } else {
@@ -281,6 +284,12 @@ export class Sled {
     const gap = pos.y - ground;
     this.grounded = gap < 0.25;
     this.airTime = this.grounded ? 0 : this.airTime + dt;
+
+    // --- Into the river: fished out and put back on the track ---
+    if (this.grounded && terrain.wetAt(pos.x, pos.z) > 0.7) {
+      this.resetToTrack(world);
+      this.impact = 9;
+    }
 
     // --- Trees and rocks ---
     world.colliders.near(pos.x, pos.z, (c) => {
@@ -342,10 +351,49 @@ export class Sled {
     g.position.copy(this.pos);
 
     const speedK = clamp(this.speed / 25, 0, 1);
-    this.lean = lerp(this.lean, -this.input.steer * 0.3 * speedK, dt > 0 ? 1 - Math.exp(-8 * dt) : 1);
-    this.model.body.rotation.z = this.lean;
-    for (const ski of this.model.skis) ski.rotation.y = this.input.steer * 0.35;
+    const inp = this.input;
+    this.lean = lerp(this.lean, -inp.steer * 0.55 * speedK, dt > 0 ? 1 - Math.exp(-8 * dt) : 1);
+
+    if (dt > 0) {
+      // Body on its springs: bumps and landings push it down, then it settles.
+      const ay = clamp((this.vel.y - this.lastVy) / dt, -120, 120);
+      this.lastVy = this.vel.y;
+      const rest = this.grounded ? 0 : 0.07;
+      this.heaveV += (-(this.heave - rest) * 220 - this.heaveV * 17 - (this.grounded ? ay * 0.55 : 0)) * dt;
+      this.heave += this.heaveV * dt;
+      if (this.heave < -0.17 || this.heave > 0.1) {
+        this.heave = clamp(this.heave, -0.17, 0.1);
+        this.heaveV = 0;
+      }
+
+      // Each ski rides the snow under it; in the air they hang at full droop.
+      const fx = Math.sin(this.yaw);
+      const fz = Math.cos(this.yaw);
+      const follow = 1 - Math.exp(-30 * dt);
+      for (let i = 0; i < 2; i++) {
+        let target = -0.13;
+        if (terrain && this.grounded) {
+          const side = i === 0 ? 0.6 : -0.6;
+          const dx = fz * side + fx * 0.85;
+          const dz = -fx * side + fz * 0.85;
+          const plane = this.pos.y - (this.up.x * dx + this.up.z * dz) / this.up.y;
+          target = clamp(terrain.height(this.pos.x + dx, this.pos.z + dz) - plane, -0.16, 0.2);
+        }
+        this.skiTravel[i] += (target - this.skiTravel[i]) * follow;
+      }
+
+      // Squat under power, dive under braking.
+      const pitch = (inp.brake * 0.05 - inp.throttle * 0.03) * (this.grounded ? 1 : 0);
+      this.pitch += (pitch - this.pitch) * (1 - Math.exp(-6 * dt));
+    }
+    poseSledModel(this.model, this.heave, this.skiTravel[0], this.skiTravel[1], inp.steer, this.lean, this.pitch);
   }
+
+  private heave = 0;
+  private heaveV = 0;
+  private lastVy = 0;
+  private pitch = 0;
+  private skiTravel = [0, 0];
 
   private terrainRef?: World['terrain'];
 }

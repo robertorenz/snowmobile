@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Track } from './track';
-import { Terrain } from './terrain';
+import { Terrain, RIVER_DEPTH, RIVER_WATER } from './terrain';
 import type { TrackDef, Theme } from './tracks';
 import { mulberry32 } from './util';
 
@@ -133,6 +133,9 @@ export class World {
     const theme = (this.theme = def.theme);
     this.track = new Track(def);
     this.terrain = new Terrain(this.track);
+    for (let i = 0; i < this.track.n; i++) {
+      this.track.ice[i] = this.terrain.iceAt(this.track.px[i], this.track.pz[i]) > 0.5 ? 1 : 0;
+    }
     this.scene.add(this.terrain.mesh);
     this.scene.add(this.spray.points);
 
@@ -330,7 +333,7 @@ export class World {
     const yAxis = new THREE.Vector3(0, 1, 0);
 
     // --- Trees ---
-    const treeGeo = makeTreeGeometry();
+    const treeGeo = makeTreeGeometry(!theme.meadow);
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
     const trees = new THREE.InstancedMesh(treeGeo, treeMat, def.trees);
     let placed = 0;
@@ -340,7 +343,7 @@ export class World {
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
       const d = terrain.edgeAt(x, z);
-      if (d < 3.5) continue;
+      if (d < 3.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02) continue;
       // Dense forest lining the course, thinning out up the slopes.
       const keep = d < 45 ? 0.9 : d < 118 ? 0.35 : 0.05;
       if (rnd() > keep) continue;
@@ -373,7 +376,7 @@ export class World {
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
       const d = terrain.edgeAt(x, z);
-      if (d < 6 || d > 108) continue;
+      if (d < 6 || d > 108 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02) continue;
       const scale = 0.8 + rnd() * 2.2;
       q.setFromEuler(new THREE.Euler(rnd() * 3, rnd() * 3, rnd() * 3));
       s.set(scale * (0.8 + rnd() * 0.6), scale * (0.5 + rnd() * 0.4), scale * (0.8 + rnd() * 0.6));
@@ -475,6 +478,44 @@ export class World {
         this.scene.add(mesh);
         this.colliders.add({ x: o.x, z: o.z, r: o.radius });
       }
+    }
+
+    // --- River water: a ribbon riding just below the banks ---
+    const river = def.river;
+    if (river) {
+      const pts: number[] = [];
+      const idxs: number[] = [];
+      const half = river.width / 2 + 7;
+      const a = Math.floor(river.from * track.n);
+      const b = Math.min(track.n - 1, Math.ceil(river.to * track.n));
+      for (let i = a; i <= b; i++) {
+        const off = river.side * (track.hw[i] + river.gap);
+        const y = track.py[i] - RIVER_DEPTH + RIVER_WATER;
+        for (const e of [off - half, off + half]) {
+          pts.push(track.px[i] + track.lx[i] * e, y, track.pz[i] + track.lz[i] * e);
+        }
+        if (i > a) {
+          const k = (i - a) * 2;
+          idxs.push(k - 2, k, k - 1, k - 1, k, k + 1);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      geo.setIndex(idxs);
+      geo.computeVertexNormals();
+      const water = new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({
+          color: theme.meadow ? 0x2f7fb0 : 0x24597e,
+          roughness: 0.12,
+          metalness: 0.35,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+        }),
+      );
+      water.receiveShadow = true;
+      this.scene.add(water);
     }
 
     // --- Start / finish gates ---
@@ -600,7 +641,7 @@ export class World {
 }
 
 /** A snow-dusted pine: trunk plus three cone tiers, coloured per vertex. */
-function makeTreeGeometry() {
+function makeTreeGeometry(frosted: boolean) {
   const parts: THREE.BufferGeometry[] = [];
   const paint = (g: THREE.BufferGeometry, fn: (y: number) => THREE.Color) => {
     const p = g.attributes.position;
@@ -619,7 +660,7 @@ function makeTreeGeometry() {
   paint(trunk, () => bark);
   parts.push(trunk);
 
-  const green = new THREE.Color(0x1f4a38);
+  const green = new THREE.Color(frosted ? 0x1f4a38 : 0x2c6a3c);
   const frost = new THREE.Color(0xe9f2f8);
   const tiers: [number, number, number][] = [
     [1.55, 2.3, 1.0],
@@ -630,7 +671,7 @@ function makeTreeGeometry() {
     const cone = new THREE.ConeGeometry(r, h, 8);
     const tmp = new THREE.Color();
     // Snow settles on the upper part of each tier.
-    paint(cone, (py) => tmp.copy(green).lerp(frost, Math.pow((py + h / 2) / h, 1.6) * 0.9));
+    paint(cone, (py) => tmp.copy(green).lerp(frost, frosted ? Math.pow((py + h / 2) / h, 1.6) * 0.9 : 0));
     cone.translate(0, y + h / 2, 0);
     parts.push(cone);
   }

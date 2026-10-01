@@ -34,6 +34,10 @@ export class Track {
   /** Half-width of the racing surface at each sample. */
   readonly hw: Float32Array;
   readonly obstacles: Obstacle[] = [];
+  /** Speed the AI holds itself to over rollers and hill crests, so it lands on the course. */
+  readonly caution: Float32Array;
+  /** 1 where the course runs over lake ice. Filled in once the terrain exists. */
+  ice: Uint8Array = new Uint8Array(0);
   readonly px: Float32Array;
   readonly py: Float32Array;
   readonly pz: Float32Array;
@@ -78,6 +82,8 @@ export class Track {
     this.curv = new Float32Array(n);
     this.slope = new Float32Array(n);
     this.hw = new Float32Array(n);
+    this.ice = new Uint8Array(n);
+    this.caution = new Float32Array(n).fill(Infinity);
 
     // Width: eased between keyframes, so the course squeezes and opens up.
     const keys = [...(def.widths ?? [])].sort((a, b) => a[0] - b[0]);
@@ -124,7 +130,12 @@ export class Track {
       const from = r.at * len;
       for (let i = 0; i < n; i++) {
         const u = (i * this.ds - from) / r.length;
-        if (u > 0 && u < 1) this.py[i] += r.height * 0.5 * (1 - Math.cos(u * r.count * Math.PI * 2));
+        if (u > 0 && u < 1) {
+          this.py[i] += r.height * 0.5 * (1 - Math.cos(u * r.count * Math.PI * 2));
+          // A run of rollers is taken steadily; a single big hill only needs care up to its crest.
+          if (r.count > 1) this.caution[i] = 30;
+          else if (u < 0.6) this.caution[i] = 37;
+        }
       }
     }
 

@@ -9,6 +9,9 @@ const FAR = 150;
 /** Width of the band where the flat track surface blends into the hills. */
 const BLEND = 40;
 const BUCKET = 50;
+/** How far the river bed sits below the track, and the water surface above the bed. */
+export const RIVER_DEPTH = 3.6;
+export const RIVER_WATER = 2.2;
 
 /**
  * Heightmap terrain shaped around a track: flat across the racing surface,
@@ -25,6 +28,9 @@ export class Terrain {
   readonly dist: Float32Array;
   /** Track half-width at the nearest point of the course, per grid vertex. */
   readonly halfWidths: Float32Array;
+  /** 0..1 per grid vertex: how deep into the river channel, and how far onto the lake ice. */
+  readonly wet: Float32Array;
+  readonly ice: Float32Array;
   readonly mesh: THREE.Mesh;
   readonly sizeX: number;
   readonly sizeZ: number;
@@ -80,6 +86,10 @@ export class Terrain {
     const dist = new Float32Array(nx * nz);
     const lat = new Float32Array(nx * nz);
     const hwv = new Float32Array(nx * nz);
+    const wet = new Float32Array(nx * nz);
+    const ice = new Float32Array(nx * nz);
+    const river = def.river;
+    const lake = def.lake;
 
     for (let iz = 0; iz < nz; iz++) {
       const z = minZ + iz * cell;
@@ -145,7 +155,26 @@ export class Terrain {
         const t = smoothstep(hw + 1.5, hw + 1.5 + BLEND, dd);
 
         const idx = iz * nx + ix;
-        heights[idx] = trackH * (1 - t) + (far + mountains + bumps) * t;
+        let h = trackH * (1 - t) + (far + mountains + bumps) * t;
+
+        // River: a channel cut alongside the track.
+        if (river && bi >= 0) {
+          const u = bi / track.n;
+          const reach = smoothstep(river.from, river.from + 0.03, u) * (1 - smoothstep(river.to - 0.03, river.to, u));
+          if (reach > 0) {
+            const centre = river.side * (hw + river.gap);
+            const m = (1 - smoothstep(river.width / 2, river.width / 2 + 6, Math.abs(dd * side - centre))) * reach;
+            h = h * (1 - m) + (trackH - RIVER_DEPTH) * m;
+            wet[idx] = m;
+          }
+        }
+        // Frozen lake: a dead-flat sheet of ice.
+        if (lake) {
+          const m = 1 - smoothstep(0.82, 1.08, Math.hypot((x - lake.x) / lake.rx, (z - lake.z) / lake.rz));
+          h = h * (1 - m) + lake.y * m;
+          ice[idx] = m;
+        }
+        heights[idx] = h;
         dist[idx] = dd;
         lat[idx] = dd * side;
         hwv[idx] = hw;
@@ -154,6 +183,8 @@ export class Terrain {
     this.heights = heights;
     this.dist = dist;
     this.halfWidths = hwv;
+    this.wet = wet;
+    this.ice = ice;
 
     // Mesh
     const pos = new Float32Array(nx * nz * 3);
@@ -175,7 +206,10 @@ export class Terrain {
         const zd = heights[Math.min(nz - 1, iz + 1) * nx + ix];
         const steep = Math.hypot(xr - xl, zd - zu) / (2 * cell);
         const rocky = smoothstep(0.8, 1.2, steep + noise.noise2(x * 0.08, z * 0.08) * 0.15);
-        const shade = 0.95 + 0.05 * noise.noise2(x * 0.02, z * 0.02);
+        // Grass varies more than snow does.
+        const shade = theme.meadow
+          ? 0.85 + 0.18 * noise.fbm(x * 0.015, z * 0.015, 3) + 0.06 * noise.noise2(x * 0.4, z * 0.4)
+          : 0.95 + 0.05 * noise.noise2(x * 0.02, z * 0.02);
         col[i * 3] = (snow.r * (1 - rocky) + rock.r * rocky) * shade;
         col[i * 3 + 1] = (snow.g * (1 - rocky) + rock.g * rocky) * shade;
         col[i * 3 + 2] = (snow.b * (1 - rocky) + rock.b * rocky) * shade;
@@ -202,6 +236,7 @@ export class Terrain {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('lat', new THREE.BufferAttribute(lat, 1));
     geo.setAttribute('trackHW', new THREE.BufferAttribute(hwv, 1));
+    geo.setAttribute('ice', new THREE.BufferAttribute(ice, 1));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
 
@@ -231,6 +266,22 @@ export class Terrain {
     return this.dist[i] - this.halfWidths[i];
   }
 
+  private sample(grid: Float32Array, x: number, z: number) {
+    const ix = clamp(Math.round((x - this.minX) / this.cell), 0, this.nx - 1);
+    const iz = clamp(Math.round((z - this.minZ) / this.cell), 0, this.nz - 1);
+    return grid[iz * this.nx + ix];
+  }
+
+  /** 0..1: how far into the river this point is. */
+  wetAt(x: number, z: number) {
+    return this.sample(this.wet, x, z);
+  }
+
+  /** 0..1: how far onto the frozen lake this point is. */
+  iceAt(x: number, z: number) {
+    return this.sample(this.ice, x, z);
+  }
+
   normal(x: number, z: number, out: THREE.Vector3) {
     const e = 1.2;
     const gx = (this.height(x + e, z) - this.height(x - e, z)) / (2 * e);
@@ -248,6 +299,7 @@ function makeSnowMaterial(track: Track) {
   const theme = track.def.theme;
   const line = (i: number) => new THREE.Vector4(track.px[i], track.pz[i], track.tx[i], track.tz[i]);
   const uniforms = {
+    uSoft: { value: theme.meadow ? 2.2 : 0.4 },
     uTrackColor: { value: new THREE.Color(theme.trackTint) },
     uEdgeL: { value: new THREE.Color(0x1d6fd1) },
     uEdgeR: { value: new THREE.Color(0xd8343a) },
@@ -263,6 +315,8 @@ function makeSnowMaterial(track: Track) {
         `#include <common>
         attribute float lat;
         attribute float trackHW;
+        attribute float ice;
+        varying float vIce;
         varying float vLat;
         varying float vHW;
         varying vec2 vWXZ;`,
@@ -272,6 +326,7 @@ function makeSnowMaterial(track: Track) {
         `#include <begin_vertex>
         vLat = lat;
         vHW = trackHW;
+        vIce = ice;
         vWXZ = position.xz;`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -281,6 +336,8 @@ function makeSnowMaterial(track: Track) {
         varying float vLat;
         varying vec2 vWXZ;
         varying float vHW;
+        varying float vIce;
+        uniform float uSoft;
         uniform vec3 uTrackColor;
         uniform vec3 uEdgeL;
         uniform vec3 uEdgeR;
@@ -299,9 +356,14 @@ function makeSnowMaterial(track: Track) {
         `#include <color_fragment>
         {
           float d = abs(vLat);
-          float onTrack = 1.0 - smoothstep(vHW - 0.4, vHW + 0.4, d);
+          // On a meadow the snow road has a ragged, melting edge.
+          float rag = uSoft > 1.0 ? sin(vWXZ.x * 0.7) * sin(vWXZ.y * 0.9) * 0.9 : 0.0;
+          float onTrack = 1.0 - smoothstep(vHW - 0.4 + rag, vHW + uSoft + rag, d);
+          float iceAmt = smoothstep(0.35, 0.65, vIce);
+          vec3 iceCol = vec3(0.2, 0.47, 0.74) * (0.93 + 0.07 * sin(vWXZ.x * 0.31 + sin(vWXZ.y * 0.23) * 3.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, iceCol, iceAmt);
           vec3 groomed = uTrackColor * (0.97 + 0.03 * sin(vLat * 7.0));
-          diffuseColor.rgb = mix(diffuseColor.rgb, groomed, onTrack);
+          diffuseColor.rgb = mix(diffuseColor.rgb, groomed, onTrack * (1.0 - 0.75 * iceAmt));
           float edge = smoothstep(vHW - 1.5, vHW - 1.25, d) * (1.0 - smoothstep(vHW - 0.55, vHW - 0.3, d));
           diffuseColor.rgb = mix(diffuseColor.rgb, vLat > 0.0 ? uEdgeL : uEdgeR, edge * 0.85);
           float ca = chequer(uLineA, onTrack);
@@ -309,6 +371,11 @@ function makeSnowMaterial(track: Track) {
           float c = max(ca, cb);
           if (c >= 0.0) diffuseColor.rgb = mix(vec3(0.05), vec3(0.97), c);
         }`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.32, smoothstep(0.35, 0.65, vIce));`,
       );
   };
   return mat;

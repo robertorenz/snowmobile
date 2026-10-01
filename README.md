@@ -1,6 +1,6 @@
 # Powder Rush — Snowmobile Racing
 
-A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across five tracks, on three difficulty levels.
+A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across eight tracks, on three difficulty levels.
 
 **Play it:** https://robertorenz.github.io/snowmobile/
 
@@ -38,8 +38,11 @@ A gamepad also works: left stick steers, triggers are throttle and brake, A boos
 | 3 | Glacier Run | Point-to-point descent | Bright glacier, sweeping bends; 5 jumps, 10 obstacles |
 | 4 | Aurora Pass | Circuit, 2 laps | Night, technical, headlights; 3 jumps, 9 obstacles |
 | 5 | Whiteout Summit | Point-to-point descent | Blizzard, low visibility; 7 jumps, 14 obstacles |
+| 6 | Thaw Meadow | Circuit, 2 laps | Green spring meadow where only the road holds snow; a river runs beside it |
+| 7 | Mirror Lake | Circuit, 2 laps | Straight across a frozen lake: fast, open ice with almost no grip |
+| 8 | Switchback Pass | Circuit, 2 laps | A 90 m climb through bends and over steep hills, then the plunge back down |
 
-Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of rollers, and has striped barriers and ice boulders on the racing surface. Hitting one costs most of your speed; the AI riders steer around them.
+Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of tall rollers and some big single hills that are steep enough to slow a sled on the way up, and has striped barriers and ice boulders on the racing surface. Hitting one costs most of your speed; the AI riders steer around them. Rivers (Pine Meadow, Thaw Meadow, Mirror Lake) run in a channel beside the track: ride into one and you are put back on the course at a standstill.
 
 Finishing in the top 3 unlocks the next level. Best place and time are saved per track and difficulty in the browser's local storage.
 
@@ -70,7 +73,7 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 | `src/track.ts` | Turns control points into an evenly sampled centerline with curvature and slope. |
 | `src/terrain.ts` | Heightmap terrain shaped around the track; snow shader with edge lines and start/finish chequers. |
 | `src/world.ts` | Scene for one track: trees, rocks, marker poles, gates, sky, snowfall, lighting. |
-| `src/sled.ts`, `src/sledModel.ts` | Snowmobile physics (arcade handling, jumps, collisions) and the model. |
+| `src/sled.ts`, `src/sledModel.ts` | Snowmobile physics (arcade handling, jumps, collisions, ice) and the model, including its working suspension: the body rides on springs and each ski follows the snow under it. |
 | `src/ai.ts` | AI rider: racing line, corner speed, traffic avoidance, boost, recovery. |
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |
 | `src/net.ts` | Online rooms: hosting, joining, lobby and the messages exchanged during a race. |
@@ -79,4 +82,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` and a number of `obstacles`. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), a number of `obstacles`, a `river` and a `lake`; set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

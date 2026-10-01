@@ -91,11 +91,17 @@ export class AIDriver {
     // Speed: fast enough for the tightest corner within braking range.
     const scanN = Math.round((speed * 1.4 + 18) / track.ds);
     let kMax = 0;
+    let caution = Infinity;
     for (let k = 0; k <= scanN; k += 2) {
-      const c = Math.abs(track.curv[track.wrap(s.idx + k)]);
+      // Ice has a fraction of the grip, so treat bends on it as far tighter.
+      const j = track.wrap(s.idx + k);
+      const c = Math.abs(track.curv[j]) * (track.ice[j] ? 3.5 : 1);
       if (c > kMax) kMax = c;
+      if (k * track.ds < 45 && track.caution[j] < caution) caution = track.caution[j];
     }
     let target = Math.sqrt((SLED.aLat * cfg.corner * 0.82) / Math.max(kMax, 1e-4));
+    // Braver riders carry more speed over the bumps.
+    target = Math.min(target, caution * (0.8 + 0.25 * cfg.corner));
     if (blocked) target = Math.min(target, Math.max(16, speed * 0.8));
     if (this.coolDown) target = track.closed ? Math.min(target, 16) : 0;
 

@@ -18,6 +18,8 @@ export interface Theme {
   aurora: boolean;
   night: boolean;
   exposure: number;
+  /** Green meadow: grass instead of snow, with snow only on the road. */
+  meadow?: boolean;
 }
 
 export interface JumpDef {
@@ -44,6 +46,10 @@ export interface TrackDef {
   rollers?: { at: number; length: number; height: number; count: number }[];
   /** Number of obstacles scattered on the racing surface. */
   obstacles?: number;
+  /** A river running beside part of the course. side: 1 = left of travel, -1 = right; gap is from the track edge to mid-river. */
+  river?: { from: number; to: number; side: 1 | -1; gap: number; width: number };
+  /** A frozen lake: an ellipse of flat, slippery ice at height y. */
+  lake?: { x: number; z: number; rx: number; rz: number; y: number };
   seed: number;
   /** Height of the mountains that rise away from the track. */
   mountain: number;
@@ -151,6 +157,25 @@ const BLIZZARD: Theme = {
   exposure: 0.85,
 };
 
+const MEADOW: Theme = {
+  ...DAY,
+  skyTop: 0x3b86d6,
+  skyHorizon: 0xd6ecf7,
+  fog: 0xd6ecf7,
+  fogNear: 260,
+  fogFar: 1500,
+  sunIntensity: 3.0,
+  sunDir: [0.4, 0.7, -0.45],
+  ambientGround: 0xcfe3b0,
+  ambientIntensity: 1.5,
+  // The ground is grass here; only the road keeps its snow.
+  snowTint: 0x6f9c48,
+  trackTint: 0xf2f7fb,
+  snowfall: 0,
+  meadow: true,
+  exposure: 1.0,
+};
+
 export const TRACKS: TrackDef[] = [
   {
     id: 'pine-meadow',
@@ -184,7 +209,11 @@ export const TRACKS: TrackDef[] = [
       { at: 0.3, height: 1.3, length: 16 },
       { at: 0.72, height: 1.2, length: 16 },
     ],
-    rollers: [{ at: 0.55, length: 60, height: 0.9, count: 3 }],
+    rollers: [
+      { at: 0.55, length: 60, height: 1.8, count: 3 },
+      { at: 0.86, length: 120, height: 6, count: 1 },
+    ],
+    river: { from: 0.28, to: 0.5, side: 1, gap: 19, width: 13 },
     obstacles: 4,
     seed: 11,
     mountain: 70,
@@ -232,8 +261,9 @@ export const TRACKS: TrackDef[] = [
       { at: 0.96, height: 1.6, length: 18 },
     ],
     rollers: [
-      { at: 0.18, length: 60, height: 0.9, count: 3 },
-      { at: 0.52, length: 70, height: 1.0, count: 3 },
+      { at: 0.18, length: 60, height: 1.8, count: 3 },
+      { at: 0.52, length: 70, height: 2, count: 3 },
+      { at: 0.3, length: 150, height: 11, count: 1 },
     ],
     obstacles: 7,
     seed: 23,
@@ -288,8 +318,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.8, height: 1.8, length: 18 },
     ],
     rollers: [
-      { at: 0.22, length: 70, height: 1.0, count: 3 },
-      { at: 0.68, length: 80, height: 1.1, count: 4 },
+      { at: 0.22, length: 70, height: 2, count: 3 },
+      { at: 0.68, length: 80, height: 2.2, count: 4 },
     ],
     obstacles: 10,
     seed: 37,
@@ -343,8 +373,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.975, height: 1.4, length: 16 },
     ],
     rollers: [
-      { at: 0.36, length: 60, height: 0.9, count: 3 },
-      { at: 0.7, length: 50, height: 0.8, count: 3 },
+      { at: 0.36, length: 60, height: 1.8, count: 3 },
+      { at: 0.7, length: 50, height: 1.6, count: 3 },
     ],
     obstacles: 9,
     seed: 51,
@@ -410,8 +440,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.84, height: 1.5, length: 18 },
     ],
     rollers: [
-      { at: 0.4, length: 70, height: 1.0, count: 4 },
-      { at: 0.72, length: 60, height: 0.9, count: 3 },
+      { at: 0.4, length: 70, height: 2, count: 4 },
+      { at: 0.72, length: 60, height: 1.8, count: 3 },
     ],
     obstacles: 14,
     seed: 67,
@@ -420,8 +450,144 @@ export const TRACKS: TrackDef[] = [
     aiBonus: 0.04,
     theme: BLIZZARD,
   },
+  {
+    id: 'thaw-meadow',
+    name: 'Thaw Meadow',
+    blurb: 'Spring has reached the valley. Only the road still holds snow, and a river runs beside it.',
+    closed: true,
+    laps: 2,
+    width: 22,
+    points: [
+      [0, 0, 0],
+      [140, 0, 0],
+      [250, 4, 50],
+      [290, 10, 160],
+      [230, 6, 260],
+      [120, 2, 300],
+      [20, 6, 240],
+      [-70, 12, 300],
+      [-170, 10, 380],
+      [-290, 4, 360],
+      [-350, 0, 260],
+      [-320, 2, 150],
+      [-250, 6, 60],
+      [-140, 2, 0],
+    ],
+    widths: [
+      [0, 22],
+      [0.2, 28],
+      [0.4, 16],
+      [0.62, 26],
+      [0.85, 17],
+    ],
+    jumps: [
+      { at: 0.42, height: 1.4, length: 16 },
+      { at: 0.975, height: 1.2, length: 16 },
+    ],
+    rollers: [
+      { at: 0.55, length: 130, height: 9, count: 1 },
+      { at: 0.76, length: 64, height: 1.8, count: 4 },
+    ],
+    river: { from: 0.02, to: 0.34, side: 1, gap: 19, width: 14 },
+    obstacles: 6,
+    seed: 79,
+    mountain: 60,
+    trees: 1500,
+    aiBonus: 0.02,
+    theme: MEADOW,
+  },
+  {
+    id: 'mirror-lake',
+    name: 'Mirror Lake',
+    blurb: 'Straight across a frozen lake. The ice is fast and has almost no grip.',
+    closed: true,
+    laps: 2,
+    width: 23,
+    points: [
+      [0, 0, 0],
+      [150, 0, 0],
+      [280, 4, 60],
+      [330, 8, 180],
+      [280, 4, 290],
+      [170, 0, 300],
+      [0, 0, 312],
+      [-170, 0, 300],
+      [-290, 5, 280],
+      [-360, 12, 180],
+      [-330, 8, 60],
+      [-220, 2, 0],
+      [-110, 0, 0],
+    ],
+    widths: [
+      [0, 23],
+      [0.2, 17],
+      [0.45, 30],
+      [0.7, 18],
+      [0.9, 26],
+    ],
+    jumps: [{ at: 0.96, height: 1.4, length: 16 }],
+    rollers: [
+      { at: 0.05, length: 60, height: 1.8, count: 3 },
+      { at: 0.74, length: 140, height: 9, count: 1 },
+    ],
+    lake: { x: 0, z: 308, rx: 205, rz: 92, y: 0 },
+    river: { from: 0.12, to: 0.24, side: 1, gap: 19, width: 13 },
+    obstacles: 7,
+    seed: 83,
+    mountain: 90,
+    trees: 1700,
+    aiBonus: 0.03,
+    theme: GLACIER,
+  },
+  {
+    id: 'switchback-pass',
+    name: 'Switchback Pass',
+    blurb: 'Twist up a mountain and plunge off the far side. Steep enough to bog you down.',
+    closed: true,
+    laps: 2,
+    width: 21,
+    points: [
+      [0, 0, 0],
+      [130, 0, 0],
+      [250, 8, 30],
+      [320, 22, 120],
+      [290, 38, 230],
+      [190, 50, 270],
+      [90, 58, 220],
+      [0, 68, 270],
+      [-90, 82, 340],
+      [-200, 92, 330],
+      [-290, 86, 250],
+      [-360, 66, 160],
+      [-345, 40, 60],
+      [-270, 16, 5],
+      [-150, 2, 0],
+    ],
+    widths: [
+      [0, 21],
+      [0.18, 26],
+      [0.36, 15],
+      [0.55, 24],
+      [0.75, 15],
+      [0.92, 24],
+    ],
+    jumps: [
+      { at: 0.6, height: 1.5, length: 16 },
+      { at: 0.955, height: 1.5, length: 16 },
+    ],
+    rollers: [
+      { at: 0.22, length: 120, height: 8, count: 1 },
+      { at: 0.4, length: 110, height: 7, count: 1 },
+      { at: 0.03, length: 54, height: 1.8, count: 3 },
+    ],
+    obstacles: 8,
+    seed: 97,
+    mountain: 130,
+    trees: 1800,
+    aiBonus: 0.04,
+    theme: GOLDEN,
+  },
 ];
-
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
 export interface DifficultyDef {
