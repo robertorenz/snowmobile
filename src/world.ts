@@ -446,7 +446,7 @@ export class World {
       let pick = rnd();
       let kind = 0;
       while (kind < species.length - 1 && pick > species[kind].share) pick -= species[kind++].share;
-      const scale = 0.8 + rnd() * rnd() * 1.5;
+      const scale = 0.9 + rnd() * 1.15;
       // No tree grows dead straight.
       q.setFromEuler(lean.set((rnd() - 0.5) * 0.12, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.12));
       s.set(scale * (0.85 + rnd() * 0.3), scale * (0.85 + rnd() * 0.4), scale * (0.85 + rnd() * 0.3));
@@ -461,7 +461,9 @@ export class World {
       const trees = new THREE.InstancedMesh(sp.geo, treeMat, planted[k].length);
       planted[k].forEach((mat, j) => {
         trees.setMatrixAt(j, mat);
-        trees.setColorAt(j, shade.setRGB(0.82 + rnd() * 0.32, 0.86 + rnd() * 0.26, 0.8 + rnd() * 0.3));
+        // Lighter or darker, a touch warmer or cooler, but always a green: red and blue never exceed it.
+        const g = 0.84 + rnd() * 0.3;
+        trees.setColorAt(j, shade.setRGB(g * (0.86 + rnd() * 0.12), g, g * (0.84 + rnd() * 0.12)));
       });
       trees.castShadow = true;
       trees.receiveShadow = true;
@@ -1499,9 +1501,9 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
     const green = new THREE.Color(o.green);
     const deep = green.clone().multiplyScalar(0.55);
     // Where snow lies: heavy near the trunk on each bough, thin at the tips.
-    const crest = frosted ? green.clone().lerp(frost, 0.9) : green.clone().multiplyScalar(1.25);
-    const mid = frosted ? green.clone().lerp(frost, 0.5) : green.clone().multiplyScalar(1.08);
-    const tip = frosted ? green.clone().lerp(frost, 0.12) : green.clone();
+    const crest = frosted ? green.clone().lerp(frost, 0.72) : green.clone().multiplyScalar(1.25);
+    const mid = frosted ? green.clone().lerp(frost, 0.26) : green.clone().multiplyScalar(1.08);
+    const tip = frosted ? green.clone().lerp(frost, 0.04) : green.clone();
     m.trunk(0.2, 0.03, o.height * 0.96, bark);
     const span = o.height - o.bare;
     const tierH = (span / o.tiers) * 1.75;
