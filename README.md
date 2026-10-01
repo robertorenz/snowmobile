@@ -28,6 +28,20 @@ npm run dev
 
 Then open http://localhost:5173. `npm run build` produces a static site in `dist/` that can be hosted anywhere. Every push to `main` is built and deployed to GitHub Pages by `.github/workflows/pages.yml`.
 
+## Graphics levels
+
+The game picks a graphics level from the computer's hardware the first time it runs, and you can change it under **Settings → Graphics** (the game reloads when you do).
+
+| Level | Meant for | What it draws |
+|---|---|---|
+| High | A dedicated graphics card | Everything |
+| Medium | Laptops and built-in graphics | Smaller shadows, native resolution at most, 60% of the trees, less undergrowth and snowfall |
+| Low | No graphics card (software rendering) | No shadows or edge smoothing, three-quarter resolution, simple cone trees at a third of the number, no undergrowth, no clouds, birds, balloons, airliner, ski lift or cabins, flat ground colours, no rear-view mirror |
+
+The course is the same at every level: same shape, surfaces, jumps and obstacles. Only the scenery around it changes. Fewer trees does mean fewer to hit.
+
+At any level, if frames start taking too long the game lowers its drawing resolution a step at a time (down to 45%), and raises it again when there is time to spare.
+
 ## Controls
 
 | Key | Action |
@@ -245,6 +259,7 @@ The host can run a cup for the room (choose Cup in the Mode switch): four races 
 | `src/ai.ts` | AI rider: racing line, corner speed, traffic avoidance, boost, recovery. |
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |
 | `src/net.ts` | Online rooms: hosting, joining, lobby and the messages exchanged during a race. |
+| `src/quality.ts` | The graphics levels and the hardware check that chooses one. |
 | `src/ui.ts`, `src/style.css` | Menu, HUD, minimap and modal dialogs. |
 | `src/main.ts` | Game loop, camera, and glue between the above. |
 
