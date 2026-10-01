@@ -7,6 +7,7 @@ import type { TrackDef, Theme, SurfaceOptions } from './tracks';
 import { mulberry32 } from './util';
 import { makeNoise } from './noise';
 import { Ambient } from './ambient';
+import { QUALITY, QualityDef } from './quality';
 
 export interface Collider {
   x: number;
@@ -188,10 +189,12 @@ export class World {
   constructor(
     readonly def: TrackDef,
     readonly surfaces: SurfaceOptions = ALL_SURFACES,
+    /** How much scenery to build. The course itself is the same at every level. */
+    readonly quality: QualityDef = QUALITY.high,
   ) {
     const theme = (this.theme = def.theme);
     this.track = new Track(def, surfaces);
-    this.terrain = new Terrain(this.track);
+    this.terrain = new Terrain(this.track, this.quality.plainGround);
     for (let i = 0; i < this.track.n; i++) {
       // Lake ice and full-width ice patches both count as ice for the AI's cornering.
       const sheet = this.track.surface[i] === ICE && this.track.surfSide[i] === 0;
@@ -207,8 +210,8 @@ export class World {
     this.scene.add(hemi);
 
     const sun = (this.sun = new THREE.DirectionalLight(theme.sun, theme.sunIntensity));
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.castShadow = this.quality.shadows;
+    sun.shadow.mapSize.set(this.quality.shadowSize, this.quality.shadowSize);
     const sc = sun.shadow.camera;
     sc.left = -75;
     sc.right = 75;
@@ -222,7 +225,7 @@ export class World {
 
     this.buildSky();
     this.buildScenery();
-    this.ambient = new Ambient(this);
+    this.ambient = new Ambient(this, this.quality.extras);
   }
 
   private buildSky() {
@@ -335,7 +338,7 @@ export class World {
     this.scene.add(this.skyGroup);
 
     // Falling snow, wrapped into a box that follows the camera.
-    const count = theme.snowfall;
+    const count = Math.round(theme.snowfall * this.quality.snow);
     if (count > 0) {
       const p = new Float32Array(count * 3);
       const seed = new Float32Array(count);
@@ -410,7 +413,9 @@ export class World {
       built.some((i) => Math.hypot(x - track.px[i], z - track.pz[i]) < track.hw[i] + 6);
 
     // --- Trees: several species, each instance its own size, lean and shade ---
-    const species = makeTreeSpecies(!theme.meadow, !!theme.meadow, def.seed);
+    const detail = this.quality;
+    const treeCount = Math.round(def.trees * detail.trees);
+    const species = detail.simpleTrees ? makeSimpleTrees(!theme.meadow) : makeTreeSpecies(!theme.meadow, !!theme.meadow, def.seed);
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
     // The tops sway a little in the wind; the trunks stay put.
     treeMat.onBeforeCompile = (shader) => {
@@ -429,11 +434,12 @@ export class World {
     };
     const planted = species.map(() => [] as THREE.Matrix4[]);
     // Trees proper come first in the list; undergrowth (bushes, stumps, fallen logs) after.
-    const tall = species.findIndex((sp) => sp.low);
+    const firstLow = species.findIndex((sp) => sp.low);
+    const tall = firstLow < 0 ? species.length : firstLow;
     const lean = new THREE.Euler();
     let placed = 0;
     let tries = 0;
-    while (placed < def.trees && tries < def.trees * 40) {
+    while (placed < treeCount && tries < treeCount * 40) {
       tries++;
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
@@ -460,7 +466,7 @@ export class World {
     // Undergrowth: thick along the edge of the course, thinning into the forest. Nothing to crash into.
     let low = 0;
     tries = 0;
-    const lowWanted = Math.round(def.trees * 0.45);
+    const lowWanted = firstLow < 0 ? 0 : Math.round(def.trees * 0.45 * detail.undergrowth);
     while (low < lowWanted && tries++ < lowWanted * 30) {
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
@@ -495,7 +501,7 @@ export class World {
       this.scene.add(trees);
     });
     // --- Rocks ---
-    const rockCount = 160;
+    const rockCount = Math.round(160 * detail.rocks);
     const rocks = new THREE.InstancedMesh(
       new THREE.DodecahedronGeometry(1, 0),
       new THREE.MeshStandardMaterial({ color: 0x6b727b, roughness: 0.95, flatShading: true }),
@@ -567,7 +573,7 @@ export class World {
     // --- Rock outcrops beside the course ---
     const rockGeos = [1, 2, 3].map((k) => makeRockGeometry(def.seed * 10 + k, !theme.meadow, theme.meadow ? 0x978e7e : 0x636a73));
     const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
-    const cragCount = def.crags ?? 60;
+    const cragCount = Math.round((def.crags ?? 60) * detail.rocks);
     const perGeo = rockGeos.map(() => [] as THREE.Matrix4[]);
     tries = 0;
     let made = 0;
@@ -1470,6 +1476,34 @@ function stripeTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/**
+ * The low-detail forest: one kind of tree, a trunk under three stacked
+ * cones, about a fifth of the triangles of a detailed conifer.
+ */
+function makeSimpleTrees(frosted: boolean): TreeSpecies[] {
+  const parts: THREE.BufferGeometry[] = [];
+  const paint = (g: THREE.BufferGeometry, fn: (y: number) => THREE.Color) => {
+    const p = g.attributes.position;
+    const c = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) fn(p.getY(i)).toArray(c, i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  };
+  const bark = new THREE.Color(0x4a3628);
+  const trunk = new THREE.CylinderGeometry(0.16, 0.22, 1.4, 5).translate(0, 0.7, 0);
+  paint(trunk, () => bark);
+  parts.push(trunk);
+  const green = new THREE.Color(frosted ? 0x1f4a38 : 0x2c6a3c);
+  const frost = new THREE.Color(0xe9f2f8);
+  const tmp = new THREE.Color();
+  for (const [r, h, y] of [[1.55, 2.3, 1.0], [1.2, 2.0, 2.3], [0.8, 1.8, 3.5]]) {
+    const cone = new THREE.ConeGeometry(r, h, 7);
+    paint(cone, (py) => tmp.copy(green).lerp(frost, frosted ? Math.pow((py + h / 2) / h, 1.6) * 0.75 : 0));
+    cone.translate(0, y + h / 2, 0);
+    parts.push(cone);
+  }
+  return [{ name: 'pine', geo: mergeGeometries(parts)!.toNonIndexed(), share: 1 }];
 }
 
 /** One kind of tree, and how much of the forest it makes up. */

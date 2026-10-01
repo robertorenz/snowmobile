@@ -1453,3 +1453,12 @@ kbd {
 .modal-actions + .modal-actions {
   margin-top: 8px;
 }
+
+.segmented.gfx {
+  flex: none;
+  width: 210px;
+}
+.segmented.gfx .seg {
+  font-size: 13px;
+  padding: 7px 0;
+}

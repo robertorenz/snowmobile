@@ -4,6 +4,7 @@ import { SaveData, GameMode, resultKey } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
 import { SLEDS, PAINTS, UPGRADES, UPGRADE_PRICES, STRIPES, Upgrade, sledById } from './sleds';
+import { QUALITY, Quality } from './quality';
 
 export interface UICallbacks {
   onSelectTrack(index: number): void;
@@ -14,6 +15,10 @@ export interface UICallbacks {
   onQuit(): void;
   onNext(): void;
   onToggleMute(): void;
+  /** The graphics level in use, and whether it was chosen automatically. */
+  quality(): { level: Quality; auto: boolean };
+  /** Change graphics level. The game reloads. */
+  onQuality(level: Quality | 'auto'): void;
   onMode(mode: GameMode): void;
   /** Select a paint, buying it first if need be. False if there aren't enough coins. */
   onPaint(id: string): boolean;
@@ -625,11 +630,12 @@ export class UI {
 
   showSettings() {
     const save = this.save;
+    const gfx = this.cb.quality();
     const rows: [SettingKey, string, string, boolean][] = [
       ['ice', 'Ice patches', 'Slippery sheets of ice on the road', save.surfaces.ice],
       ['stone', 'Rock and shale patches', 'Bare rock and gravel that slow the sled', save.surfaces.stone],
       ['grass', 'Grass patches', 'Grass showing through the snow', save.surfaces.grass],
-      ['mirror', 'Rear-view mirror', 'Shown at the top of the screen while racing (V)', save.mirror],
+      ['mirror', 'Rear-view mirror', gfx.level === 'low' ? 'Not available on Low graphics' : 'Shown at the top of the screen while racing (V)', save.mirror],
       ['sound', 'Sound', 'Engine, wind and effects (M)', !save.muted],
       ['music', 'Music', 'The soundtrack', save.music],
     ];
@@ -637,6 +643,10 @@ export class UI {
       `
       <h2>Settings</h2>
       <p class="modal-lead">Road surface changes apply from the next race. In an online room the host's road settings are used for everyone.</p>
+      <div class="setting">
+        <div><div class="setting-name">Graphics</div><div class="setting-note">${QUALITY[gfx.level].note}${gfx.auto ? ' · chosen automatically for this computer' : ''}. Changing it reloads the game${this.room ? ' and leaves the room' : ''}.</div></div>
+        <div class="segmented gfx">${(Object.keys(QUALITY) as Quality[]).map((q) => `<button class="seg ${q === gfx.level ? 'active' : ''}" data-gfx="${q}">${QUALITY[q].label}</button>`).join('')}</div>
+      </div>
       <div class="settings">
         ${rows
           .map(
@@ -650,6 +660,11 @@ export class UI {
       </div>
       <div class="modal-actions"><button class="btn primary" data-act="close">Done</button></div>`,
       true,
+    );
+    m.querySelectorAll<HTMLButtonElement>('[data-gfx]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (b.dataset.gfx !== gfx.level || gfx.auto) this.cb.onQuality(b.dataset.gfx as Quality);
+      }),
     );
     m.querySelectorAll<HTMLButtonElement>('.switch').forEach((b) =>
       b.addEventListener('click', () => {

@@ -5,6 +5,7 @@ import { World } from './world';
 import { Race, NetRace, RaceOptions, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
 import { SLEDS, sledById, paintById, tunedSled, UPGRADE_PRICES, RACE_COINS, MEDAL_COINS, CUP_COINS } from './sleds';
 import { AIDriver } from './ai';
+import { QUALITY, Quality, QualityDef, detectQuality } from './quality';
 import { DIFFICULTIES } from './tracks';
 import { buildSledModel } from './sledModel';
 import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
@@ -65,9 +66,14 @@ class Game {
 
   constructor() {
     const canvas = document.getElementById('game') as HTMLCanvasElement;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    // Graphics level: the saved choice, or a guess from the hardware the first time.
+    this.quality = this.save.quality === 'auto' ? detectQuality() : this.save.quality;
+    this.q = QUALITY[this.quality];
+    this.scaleMax = Math.min(window.devicePixelRatio, this.q.pixelRatio);
+    this.scale = this.scaleMax;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.q.antialias, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(this.scale);
+    this.renderer.shadowMap.enabled = this.q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.audio.muted = this.save.muted;
@@ -129,6 +135,14 @@ class Game {
         } else void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1));
       },
       onToggleMute: () => this.toggleMute(),
+      quality: () => ({ level: this.quality, auto: this.save.quality === 'auto' }),
+      onQuality: (level) => {
+        // Shadows, smoothing and the forest are all decided when things are built, so start afresh.
+        this.save.quality = level;
+        writeSave(this.save);
+        this.net?.leave();
+        location.reload();
+      },
       onSled: (id) => {
         this.save.sled = sledById(id).id;
         writeSave(this.save);
@@ -220,6 +234,34 @@ class Game {
     if (invite.length === 4) this.ui.showOnline(invite);
   }
 
+  private quality: Quality = 'high';
+  private q: QualityDef = QUALITY.high;
+  /** Pixels drawn per screen pixel right now, and the most this graphics level allows. */
+  private scale = 1;
+  private scaleMax = 1;
+  private slow = 0;
+  private fast = 0;
+
+  /**
+   * Keeps the game playable on slow machines by drawing fewer pixels when
+   * frames are taking too long, and more again when there is time to spare.
+   * Judged over a second or so at a time, so one hitch doesn't trigger it.
+   */
+  private adaptResolution(frame: number) {
+    // Ignore pauses, tab switches and track loads.
+    if (frame > 0.25 || this.busy || this.paused) return;
+    this.slow = frame > 0.03 ? this.slow + 1 : Math.max(0, this.slow - 2);
+    this.fast = frame < 0.013 ? this.fast + 1 : 0;
+    let next = this.scale;
+    if (this.slow > 45 && this.scale > 0.45) next = Math.max(0.45, this.scale - 0.1);
+    else if (this.fast > 240 && this.scale < this.scaleMax) next = Math.min(this.scaleMax, this.scale + 0.1);
+    if (next === this.scale) return;
+    this.scale = next;
+    this.slow = this.fast = 0;
+    this.renderer.setPixelRatio(next);
+    this.resize();
+  }
+
   private resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -275,7 +317,7 @@ class Game {
       this.race = null;
       if (rebuild) {
         this.world?.dispose();
-        this.world = new World(def, { ...surfaces });
+        this.world = new World(def, { ...surfaces }, this.q);
       }
       const world = this.world!;
       this.trackIndex = index;
@@ -520,6 +562,7 @@ class Game {
 
   private frame(now: number) {
     requestAnimationFrame((t) => this.frame(t));
+    this.adaptResolution((now - this.last) / 1000);
     // Never zero: the physics divides by it.
     const dt = clamp((now - this.last) / 1000, 0.001, 0.05);
     this.last = now;
@@ -626,7 +669,7 @@ class Game {
     if (this.mode === 'race' && player) this.ui.updateHud(this.hudState(race, player));
     this.renderer.render(world.scene, this.camera);
     this.input.showTouch(this.mode === 'race' && !this.paused && !this.resultsShown);
-    const mirror = this.mode === 'race' && !!player && this.save.mirror && !this.photo;
+    const mirror = this.mode === 'race' && !!player && this.save.mirror && this.q.mirror && !this.photo;
     this.ui.showMirror(mirror);
     if (mirror && player) this.renderMirror(world, player);
   }

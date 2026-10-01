@@ -36,7 +36,7 @@ export class Terrain {
   readonly sizeX: number;
   readonly sizeZ: number;
 
-  constructor(track: Track) {
+  constructor(track: Track, plain = false) {
     const def = track.def;
     const theme = def.theme;
     const noise = makeNoise(def.seed);
@@ -276,7 +276,7 @@ export class Terrain {
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
 
-    this.mesh = new THREE.Mesh(geo, makeSnowMaterial(track));
+    this.mesh = new THREE.Mesh(geo, makeSnowMaterial(track, plain));
     this.mesh.receiveShadow = true;
   }
 
@@ -331,7 +331,7 @@ export class Terrain {
  * chequered start/finish lines drawn in the shader, so they stay crisp
  * regardless of terrain resolution.
  */
-function makeSnowMaterial(track: Track) {
+function makeSnowMaterial(track: Track, plain: boolean) {
   const theme = track.def.theme;
   const line = (i: number) => new THREE.Vector4(track.px[i], track.pz[i], track.tx[i], track.tz[i]);
   const uniforms = {
@@ -345,6 +345,7 @@ function makeSnowMaterial(track: Track) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
+    if (plain) shader.fragmentShader = '#define PLAIN_GROUND\n' + shader.fragmentShader;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -382,6 +383,10 @@ function makeSnowMaterial(track: Track) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
         }
         float vnoise(vec2 p) {
+          // Low graphics: no texture in the ground, just flat colour.
+          #ifdef PLAIN_GROUND
+            return 0.5;
+          #endif
           vec2 i = floor(p);
           vec2 f = fract(p);
           f = f * f * (3.0 - 2.0 * f);

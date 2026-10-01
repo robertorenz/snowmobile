@@ -23,7 +23,11 @@ export class Ambient {
   private rz: number;
   private top: number;
 
-  constructor(private world: World) {
+  constructor(
+    private world: World,
+    /** False on low graphics: build only what matters to the race (train, deer, crowd). */
+    extras = true,
+  ) {
     const { terrain, track, theme, def } = world;
     this.rnd = mulberry32(def.seed * 53 + 11);
     this.cx = terrain.minX + terrain.sizeX / 2;
@@ -35,7 +39,7 @@ export class Ambient {
     this.top = top;
 
     // In a blizzard none of the sky can be seen; the train still runs.
-    const clear = theme.fogFar > 500;
+    const clear = extras && theme.fogFar > 500;
     if (clear) {
       this.buildClouds();
       this.buildPlane();
@@ -47,8 +51,10 @@ export class Ambient {
     this.buildTrain();
     this.buildDeer();
     this.buildCrowd();
-    this.buildCabins();
-    this.buildSkiLift();
+    if (extras) {
+      this.buildCabins();
+      this.buildSkiLift();
+    }
   }
 
   update(dt: number) {

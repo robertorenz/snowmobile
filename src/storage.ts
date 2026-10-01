@@ -1,6 +1,7 @@
 import { ALL_SURFACES } from './tracks';
 import type { Difficulty, SurfaceOptions } from './tracks';
 import type { UpgradeLevels } from './sleds';
+import type { Quality } from './quality';
 
 const KEY = 'powder-rush-save-v1';
 
@@ -17,6 +18,8 @@ export interface SaveData {
   muted: boolean;
   /** Rear-view mirror shown while racing. */
   mirror: boolean;
+  /** Graphics level, or 'auto' to choose from the computer's hardware. */
+  quality: Quality | 'auto';
   music: boolean;
   /** Coins won, the paints bought with them, and the one in use. */
   coins: number;
@@ -44,7 +47,7 @@ export interface SaveData {
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, quality: 'auto', music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {
