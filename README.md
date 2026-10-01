@@ -168,6 +168,15 @@ Most of this is there to look at; the deer and the avalanche are the exceptions.
 
 ![A steam train, balloons, clouds and an airliner over Thaw Meadow](docs/screenshots/scenery.jpg)
 
+### Trees
+
+The forest is a mix of seven species, each with its own shape: spruce, Douglas fir (the tallest), white pine (a long bare trunk under level whorls), young fir, tamarack, elm and birch. Tamarack, elm and birch stand bare with snow on their limbs on the winter tracks and are in leaf on the two meadow tracks.
+
+| | |
+|---|---|
+| ![Winter forest](docs/screenshots/trees-winter.jpg) | ![Meadow forest](docs/screenshots/trees-meadow.jpg) |
+| Winter: conifers under snow, bare elm, tamarack and birch | Meadow: the same species in leaf |
+
 ### Plunges
 
 Eleven of the twelve tracks (all but Mirror Lake) have at least one plunge: a drop of 24 to 75 m in under 200 m, with grades of 40 to 60%. On eight of them the drop is bent into a slalom with bends as tight as a 20 m radius, so it cannot be taken flat out: brake, swerve, and pick a line. On the circuits each plunge is paid for by an equally steep climb elsewhere on the lap. The camera tips down into drops and up at climbs so you can see what is coming.

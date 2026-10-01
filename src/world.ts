@@ -1698,12 +1698,12 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
       const f = k / (whorls - 1);
       const y = 1.5 + f * (h - 2.0);
       const len = 1.5 * (1 - f) + 0.25;
-      const count = 5;
+      const count = 4;
       for (let b = 0; b < count; b++) {
         const a = (b / count) * Math.PI * 2 + k * 0.7 + rnd() * 0.5;
         // Lower branches sag; upper ones reach up.
         const dir = new THREE.Vector3(Math.cos(a), -0.12 + f * 0.45, Math.sin(a)).normalize();
-        grow(m, [0, y, 0], dir, len * (0.8 + rnd() * 0.4), 0.035, 1, { kids: 2, spread: 0.6, shrink: 0.45, lift: 0.05, wood });
+        grow(m, [0, y, 0], dir, len * (0.8 + rnd() * 0.4), 0.035, 1, { kids: 1, spread: 0.6, shrink: 0.45, lift: 0.05, wood });
       }
     }
     return m.build();
