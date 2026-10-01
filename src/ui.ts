@@ -1,6 +1,6 @@
-import { TRACKS, DIFFICULTIES, Difficulty, TrackDef } from './tracks';
+import { TRACKS, CUPS, MEDAL_FACTORS, DIFFICULTIES, Difficulty, TrackDef } from './tracks';
 import { trackOutline } from './track';
-import { SaveData, resultKey } from './storage';
+import { SaveData, GameMode, resultKey } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
 import { SLEDS, sledById } from './sleds';
@@ -14,6 +14,8 @@ export interface UICallbacks {
   onQuit(): void;
   onNext(): void;
   onToggleMute(): void;
+  onMode(mode: GameMode): void;
+  onCup(index: number): void;
   onSled(id: string): void;
   /** Picture of a snowmobile model, as an image URL. */
   sledThumb(id: string): string;
@@ -66,6 +68,11 @@ export interface ResultsData {
   unlockedName: string | null;
   hasNext: boolean;
   online: boolean;
+  /** Time trial: medal earned (0 gold, 1 silver, 2 bronze, -1 none), the three target times, and the best time on record. */
+  trial?: { medal: number; targets: number[]; best: number; improved: boolean };
+  /** Championship: where this race falls in the cup and the points table; final is the finishing position once the cup is over. */
+  champ?: { cup: string; race: number; races: number; table: { name: string; points: number; me: boolean }[]; final: number };
+  eliminated?: boolean;
 }
 
 const standingRows = (standings: Standing[]) =>
@@ -75,7 +82,7 @@ const standingRows = (standings: Standing[]) =>
         <tr class="${s.sled.isPlayer ? 'me' : ''}">
           <td class="pos">${s.place}</td>
           <td><span class="swatch" style="background:${hex(s.sled.color)}"></span>${escapeHtml(s.sled.name)}</td>
-          <td class="time">${formatTime(s.time)}${s.estimated ? '<span class="est">est.</span>' : ''}</td>
+          <td class="time">${s.out ? 'Out' : formatTime(s.time)}${s.estimated ? '<span class="est">est.</span>' : ''}</td>
         </tr>`,
     )
     .join('');
@@ -189,12 +196,16 @@ export class UI {
       )
       .join('');
 
+    const mode: GameMode = room ? 'race' : save.mode;
     const cards = TRACKS.map((t, i) => {
       // Every track is open in an online room.
       const locked = !room && i >= save.unlocked;
       const res = save.results[resultKey(t.id, save.difficulty)];
+      const trial = mode === 'trial' ? save.trials[t.id] : undefined;
       const meta = locked
         ? `Top 3 on ${TRACKS[i - 1].name}`
+        : mode === 'trial'
+          ? trial !== undefined ? `Best ${formatTime(trial)}` : `Gold: ${formatTime((t.par ?? 120) * MEDAL_FACTORS[0])}`
         : res
           ? `Best: ${ordinal(res.bestPlace)} · ${formatTime(res.bestTime)}`
           : t.closed
@@ -239,8 +250,24 @@ export class UI {
           }</div>
         </div>`
       : '';
+    const cup = CUPS[save.cup] ?? CUPS[0];
+    const startLabel = mode === 'trial' ? `Time trial: ${sel.name}` : mode === 'elimination' ? `Knockout: ${sel.name}` : mode === 'championship' ? `Start the ${cup.name}` : `Race ${sel.name}`;
+    const modes: [GameMode, string][] = [['race', 'Race'], ['trial', 'Time trial'], ['elimination', 'Knockout'], ['championship', 'Cup']];
+    const modeBar = room ? '' : `<div class="segmented four">${modes.map(([id, label]) => `<button class="seg ${id === mode ? 'active' : ''}" data-mode="${id}">${label}</button>`).join('')}</div>`;
+    // A cup needs every one of its tracks unlocked.
+    const cupCards = CUPS.map((c, i) => {
+      const locked = Math.max(...c.tracks) >= save.unlocked;
+      const best = save.cups[c.id];
+      return `
+        <button class="track-card cup ${i === save.cup ? 'selected' : ''} ${locked ? 'locked' : ''}" data-cup="${i}" ${locked ? 'disabled' : ''}>
+          <span class="track-text">
+            <span class="track-name">${c.name}${best ? `<span class="medal m${Math.min(best, 3)}">${ordinal(best)}</span>` : ''}</span>
+            <span class="track-meta">${locked ? 'Unlock all four tracks first' : c.tracks.map((k) => TRACKS[k].name).join(' · ')}</span>
+          </span>
+        </button>`;
+    }).join('');
     const startButton = !room
-      ? `<button class="btn primary big" data-act="start">Race ${sel.name}</button>
+      ? `<button class="btn primary big" data-act="start">${startLabel}</button>
          <button class="btn wide" data-act="online">Play online with friends</button>`
       : room.isHost
         ? `<button class="btn primary big" data-act="start">Start online race</button>`
@@ -264,8 +291,9 @@ export class UI {
         <div class="section-label">${room ? 'AI difficulty' : 'Difficulty'}</div>
         <div class="segmented">${diffButtons}</div>
         <p class="diff-blurb">${DIFFICULTIES[difficulty].blurb}</p>
-        <div class="section-label">Track</div>
-        <div class="track-list">${cards}</div>
+        ${modeBar ? `<div class="section-label">Mode</div>${modeBar}` : ''}
+        <div class="section-label">${mode === 'championship' ? 'Cup' : 'Track'}</div>
+        <div class="track-list ${mode === 'championship' ? 'cups' : ''}">${mode === 'championship' ? cupCards : cards}</div>
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
           <button class="btn ghost" data-act="settings">Settings</button>
@@ -281,6 +309,20 @@ export class UI {
     });
     this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
     this.menu.querySelector('[data-act="sled"]')?.addEventListener('click', () => this.showSleds());
+    this.menu.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.save.mode = b.dataset.mode as GameMode;
+        this.cb.onMode(this.save.mode);
+        this.renderMenu();
+      }),
+    );
+    this.menu.querySelectorAll<HTMLButtonElement>('[data-cup]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.save.cup = Number(b.dataset.cup);
+        this.cb.onCup(this.save.cup);
+        this.renderMenu();
+      }),
+    );
     this.menu.querySelector('[data-act="leave"]')?.addEventListener('click', () => this.cb.onLeaveRoom());
     const copy = this.menu.querySelector<HTMLButtonElement>('[data-act="copy"]');
     copy?.addEventListener('click', () => {
@@ -621,37 +663,72 @@ export class UI {
   }
 
   showResults(d: ResultsData) {
-    const headline = d.playerPlace === 1 ? 'Victory!' : d.playerPlace <= 3 ? 'Podium finish' : 'Race complete';
-    const rows = standingRows(d.standings);
+    const diff = DIFFICULTIES[d.difficulty].label;
     const notes: string[] = [];
-    if (d.online) {
-      // Online results don't count toward solo progression.
-    } else if (d.newBest) notes.push(`<div class="note good">New personal best on ${DIFFICULTIES[d.difficulty].label}</div>`);
-    if (d.online) {
-      // No unlock notes either.
-    } else if (d.unlockedName) notes.push(`<div class="note good">Level unlocked: ${d.unlockedName}</div>`);
-    else if (d.playerPlace > 3) notes.push(`<div class="note">Finish in the top 3 to unlock the next level.</div>`);
+    let badge = ordinal(d.playerPlace);
+    let tone = `p${Math.min(d.playerPlace, 4)}`;
+    let headline = d.playerPlace === 1 ? 'Victory!' : d.playerPlace <= 3 ? 'Podium finish' : 'Race complete';
+    let sub = `${d.track.name} · ${diff} · ${formatTime(d.playerTime)}`;
+    let body = `<table class="standings">${standingRows(d.standings)}</table>`;
+    let actions = `${d.hasNext ? '<button class="btn primary" data-act="next">Next track</button>' : ''}
+        <button class="btn ${d.hasNext ? '' : 'primary'}" data-act="restart">Race again</button>
+        <button class="btn ghost" data-act="quit">Menu</button>`;
+
+    if (d.trial) {
+      // Time trial: the medal is the result.
+      const names = ['Gold', 'Silver', 'Bronze'];
+      const m = d.trial.medal;
+      badge = m >= 0 ? names[m] : '—';
+      tone = m >= 0 ? `p${m + 1}` : 'p4';
+      headline = m >= 0 ? `${names[m]} medal` : 'No medal this time';
+      sub = `${d.track.name} · Time trial · ${formatTime(d.playerTime)}`;
+      if (d.trial.improved) notes.push('<div class="note good">New best time. Your ghost has been updated.</div>');
+      else notes.push(`<div class="note">Your best is ${formatTime(d.trial.best)}.</div>`);
+      body = `<table class="standings">${d.trial.targets
+        .map(
+          (t, i) =>
+            `<tr class="${i === m ? 'me' : ''}"><td class="pos"><span class="medal m${i + 1}">${names[i]}</span></td><td>${formatTime(t)} or better</td><td class="time">${d.playerTime <= t ? 'Achieved' : `${(d.playerTime - t).toFixed(2)}s off`}</td></tr>`,
+        )
+        .join('')}</table>`;
+      actions = `<button class="btn primary" data-act="restart">Try again</button><button class="btn ghost" data-act="quit">Menu</button>`;
+    } else if (d.champ) {
+      const c = d.champ;
+      sub = `${c.cup} · Race ${c.race} of ${c.races} · ${d.track.name}`;
+      if (c.final) {
+        badge = ordinal(c.final);
+        tone = `p${Math.min(c.final, 4)}`;
+        headline = c.final === 1 ? 'Champion!' : c.final <= 3 ? 'On the podium' : 'Cup complete';
+      }
+      body += `<div class="section-label">${c.final ? 'Final standings' : 'Championship standings'}</div>
+        <table class="standings">${c.table
+          .map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="pos">${i + 1}</td><td>${escapeHtml(r.name)}</td><td class="time">${r.points} pts</td></tr>`)
+          .join('')}</table>`;
+      actions = `${d.hasNext ? '<button class="btn primary" data-act="next">Next race</button>' : '<button class="btn primary" data-act="quit">Finish</button>'}
+        ${d.hasNext ? '<button class="btn ghost" data-act="quit">Abandon cup</button>' : ''}`;
+    } else if (d.online) {
+      actions = '<button class="btn primary" data-act="quit">Back to room</button>';
+    } else {
+      if (d.eliminated) {
+        headline = 'Knocked out';
+        sub = `${d.track.name} · ${diff} · Knockout`;
+      }
+      if (d.newBest) notes.push(`<div class="note good">New personal best on ${diff}</div>`);
+      if (d.unlockedName) notes.push(`<div class="note good">Level unlocked: ${d.unlockedName}</div>`);
+      else if (d.playerPlace > 3) notes.push(`<div class="note">Finish in the top 3 to unlock the next level.</div>`);
+    }
 
     const m = this.openModal(
       `
-      <div class="result-head p${Math.min(d.playerPlace, 4)}">
-        <div class="result-place">${ordinal(d.playerPlace)}</div>
+      <div class="result-head ${tone}">
+        <div class="result-place">${badge}</div>
         <div>
           <h2>${headline}</h2>
-          <div class="result-sub">${d.track.name} · ${DIFFICULTIES[d.difficulty].label} · ${formatTime(d.playerTime)}</div>
+          <div class="result-sub">${sub}</div>
         </div>
       </div>
       ${notes.join('')}
-      <table class="standings">${rows}</table>
-      <div class="modal-actions">
-        ${
-          d.online
-            ? '<button class="btn primary" data-act="quit">Back to room</button>'
-            : `${d.hasNext ? '<button class="btn primary" data-act="next">Next track</button>' : ''}
-        <button class="btn ${d.hasNext ? '' : 'primary'}" data-act="restart">Race again</button>
-        <button class="btn ghost" data-act="quit">Menu</button>`
-        }
-      </div>`,
+      ${body}
+      <div class="modal-actions">${actions}</div>`,
       true,
     );
     this.bind(m, {
@@ -660,7 +737,6 @@ export class UI {
       quit: () => this.cb.onQuit(),
     });
   }
-
   showError(message: string) {
     const m = this.openModal(`
       <h2>Something went wrong</h2>

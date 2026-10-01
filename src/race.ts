@@ -6,9 +6,10 @@ import type { GridEntry } from './net';
 import { DIFFICULTIES, Difficulty } from './tracks';
 import { clamp, lerp } from './util';
 import { SLEDS, DEFAULT_SLED, sledById } from './sleds';
+import { buildSledModel } from './sledModel';
 
 export type RacePhase = 'waiting' | 'countdown' | 'racing' | 'finished';
-export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish' | 'pickup' | 'throw' | 'struck';
+export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish' | 'pickup' | 'throw' | 'struck' | 'knockout' | 'eliminated';
 
 export const RACERS = 6;
 export const AI_NAMES = ['Lindqvist', 'Tremblay', 'Yukimura', 'Kowalski', 'Halvorsen', 'Aspen'];
@@ -22,7 +23,21 @@ export interface Standing {
   time: number;
   /** True when the time is a projection for a racer still on course. */
   estimated: boolean;
+  /** Knocked out of an elimination race. */
+  out?: boolean;
 }
+
+/** race: first to the finish. trial: alone against the clock and your ghost. elimination: last place is knocked out at intervals. */
+export type RaceMode = 'race' | 'trial' | 'elimination';
+
+export interface RaceOptions {
+  mode?: RaceMode;
+  /** A recorded run to race against in a time trial: x, y, z, yaw every GHOST_STEP seconds. */
+  ghost?: number[] | null;
+}
+
+/** Seconds between samples of a recorded run. */
+export const GHOST_STEP = 0.1;
 
 /** Who is on the grid of an online race, and which of them this computer drives. */
 export interface NetRace {
@@ -65,6 +80,16 @@ export class Race {
   /** Grid slots of sleds driven elsewhere that our snowballs have hit; main sends these on. */
   pendingHits: number[] = [];
   private snowballs: { s: number; lateral: number; speed: number; owner: Sled; life: number; mesh: THREE.Mesh }[] = [];
+  readonly mode: RaceMode;
+  /** The player's run so far, sampled for saving as a ghost. */
+  readonly recording: number[] = [];
+  private recordAt = 0;
+  private ghost: THREE.Group | null = null;
+  private ghostData: number[] | null = null;
+  /** Elimination: seconds between knockouts, and until the next one. */
+  knockoutEvery = 0;
+  knockoutIn = 0;
+  private knockouts = 0;
   private ais: AIDriver[] = [];
   private humans: Sled[] = [];
   private autopilot: AIDriver | null = null;
@@ -78,12 +103,34 @@ export class Race {
     readonly attract: boolean,
     net: NetRace | null = null,
     sled = DEFAULT_SLED.id,
+    opts: RaceOptions = {},
   ) {
+    this.mode = opts.mode ?? 'race';
     const { track, def } = world;
     const cfg = DIFFICULTIES[difficulty];
     this.finishLine = track.startS + track.raceLength;
     this.online = !!net;
-    const grid = (this.grid = net ? net.grid : soloGrid(attract, sled));
+    // A time trial has no one else on the course.
+    const solo = soloGrid(attract, sled);
+    const grid = (this.grid = net ? net.grid : this.mode === 'trial' ? solo.filter((g) => g.kind === 'human') : solo);
+    this.knockoutEvery = Math.max(14, (def.par ?? 120) / RACERS);
+    this.knockoutIn = this.knockoutEvery;
+    if (this.mode === 'trial' && opts.ghost && opts.ghost.length >= 8) {
+      this.ghostData = opts.ghost;
+      this.ghost = buildSledModel(0xbfd9ee, 0xffffff, sledById(sled).shape).group;
+      // A ghost is see-through and casts no shadow.
+      this.ghost.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        mesh.castShadow = false;
+        const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
+        if (mat) {
+          mat.transparent = true;
+          mat.opacity = 0.32;
+          mat.depthWrite = false;
+        }
+      });
+      world.scene.add(this.ghost);
+    }
     const localId = net ? net.localId : 'me';
     const simulateAI = !net || net.isHost;
     const aiTotal = grid.filter((g) => g.kind === 'ai').length;
@@ -176,6 +223,7 @@ export class Race {
     }
     this.collide();
     if (!frozen) this.extras(dt);
+    if (!frozen) this.modeRules(dt);
 
     // Finish line. Remote sleds report their own finish.
     for (const s of this.sleds) {
@@ -210,6 +258,58 @@ export class Race {
     }
 
     this.rank();
+  }
+
+  /** Time-trial ghost and recording; elimination knockouts. */
+  private modeRules(dt: number) {
+    const p = this.player;
+    if (this.mode === 'trial' && p) {
+      if (!p.finished && this.time >= this.recordAt) {
+        this.recordAt += GHOST_STEP;
+        const r = (v: number) => Math.round(v * 10) / 10;
+        this.recording.push(r(p.pos.x), r(p.pos.y), r(p.pos.z), Math.round(p.yaw * 100) / 100);
+      }
+      const g = this.ghost;
+      const d = this.ghostData;
+      if (g && d) {
+        const f = this.time / GHOST_STEP;
+        const k = Math.floor(f);
+        const u = f - k;
+        const a = k * 4;
+        g.visible = a + 7 < d.length;
+        if (g.visible) {
+          g.position.set(d[a] + (d[a + 4] - d[a]) * u, d[a + 1] + (d[a + 5] - d[a + 1]) * u, d[a + 2] + (d[a + 6] - d[a + 2]) * u);
+          g.rotation.y = d[a + 3];
+        }
+      }
+    }
+
+    if (this.mode === 'elimination' && this.phase === 'racing') {
+      this.knockoutIn -= dt;
+      if (this.knockoutIn > 0) return;
+      this.knockoutIn = this.knockoutEvery;
+      const alive = this.sleds.filter((s) => !s.gone && !s.finished);
+      if (alive.length < 2) return;
+      const last = alive.reduce((a, b) => (a.place > b.place ? a : b));
+      last.eliminated = true;
+      last.elimOrder = ++this.knockouts;
+      last.gone = true;
+      last.model.group.visible = false;
+      this.rank();
+      if (last === p) {
+        this.phase = 'finished';
+        this.events.push('eliminated');
+      } else {
+        this.events.push('knockout');
+        // Last one standing wins outright.
+        if (alive.length === 2 && p && !p.gone) {
+          p.finished = true;
+          p.finishTime = this.time;
+          this.phase = 'finished';
+          this.events.push('finish');
+        }
+      }
+    }
   }
 
   /** Slipstream, pickups and snowballs. */
@@ -367,6 +467,11 @@ export class Race {
 
   private rank() {
     const order = [...this.sleds].sort((a, b) => {
+      // Knocked-out riders rank below everyone still in, the last one out highest.
+      if (a.eliminated || b.eliminated) {
+        if (a.eliminated && b.eliminated) return b.elimOrder - a.elimOrder;
+        return a.eliminated ? 1 : -1;
+      }
       if (a.gone !== b.gone) return a.gone ? 1 : -1;
       if (a.finished && b.finished) return a.finishTime - b.finishTime;
       if (a.finished) return -1;
@@ -390,9 +495,10 @@ export class Race {
   /** Final classification. Racers still on course get a projected time. */
   standings(): Standing[] {
     return this.sleds
-      .filter((s) => !s.gone)
+      .filter((s) => !s.gone || s.eliminated)
       .sort((a, b) => a.place - b.place)
-      .map((sled) => {
+      .map((sled): Standing => {
+        if (sled.eliminated) return { sled, place: sled.place, time: NaN, estimated: false, out: true };
         if (sled.finished) return { sled, place: sled.place, time: sled.finishTime, estimated: false };
         const remaining = Math.max(0, this.finishLine - sled.progress);
         const pace = Math.max(18, SLED.maxSpeed * sled.speedScale * 0.8);
@@ -438,6 +544,7 @@ export class Race {
   }
 
   dispose() {
+    if (this.ghost) this.world.scene.remove(this.ghost);
     for (const b of this.snowballs) this.world.scene.remove(b.mesh);
     for (const item of this.world.pickups) item.respawn = 0;
     for (const s of this.sleds) {

@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import './style.css';
-import { TRACKS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
+import { TRACKS, CUPS, CUP_POINTS, MEDAL_FACTORS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
 import { World } from './world';
-import { Race, NetRace, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
+import { Race, NetRace, RaceOptions, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
 import { SLEDS, sledById } from './sleds';
+import { AIDriver } from './ai';
+import { DIFFICULTIES } from './tracks';
 import { buildSledModel } from './sledModel';
 import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
 import { SLED, Sled } from './sled';
 import { Input } from './input';
 import { AudioEngine } from './audio';
 import { UI, HudState, RoomView } from './ui';
-import { loadSave, writeSave, resultKey } from './storage';
-import { clamp, lerp, wrapAngle } from './util';
+import { loadSave, writeSave, resultKey, loadGhost, saveGhost } from './storage';
+import { clamp, lerp, wrapAngle, formatTime } from './util';
 
 const STEP = 1 / 60;
 const hexColor = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -54,6 +56,9 @@ class Game {
     new THREE.MeshBasicMaterial({ map: this.mirrorTarget.texture, side: THREE.DoubleSide, depthTest: false, fog: false }),
   );
 
+  /** The championship in progress: which cup, which race of it, and points so far by rider name. */
+  private champ: { cup: number; race: number; points: Record<string, number> } | null = null;
+
   private net: NetSession | null = null;
   private netTimer = 0;
   private standingsTimer = 0;
@@ -82,14 +87,36 @@ class Game {
       },
       onStart: () => {
         if (this.net) this.hostStartOnline();
-        else void this.startRace(this.ui.selectedTrack);
+        else if (this.save.mode === 'championship') {
+          this.champ = { cup: this.save.cup, race: 0, points: {} };
+          void this.startRace(CUPS[this.save.cup].tracks[0]);
+        } else void this.startRace(this.ui.selectedTrack);
+      },
+      onMode: (mode) => {
+        this.save.mode = mode;
+        writeSave(this.save);
+      },
+      onCup: (i) => {
+        this.save.cup = i;
+        writeSave(this.save);
+        void this.load(CUPS[i].tracks[0], true);
       },
       onOnline: (action, name, code) => this.goOnline(action, name, code),
       onLeaveRoom: () => this.leaveRoom(),
       onResume: () => this.setPaused(false),
       onRestart: () => void this.startRace(this.trackIndex),
-      onQuit: () => void this.toMenu(),
-      onNext: () => void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1)),
+      onQuit: () => {
+        this.champ = null;
+        void this.toMenu();
+      },
+      onNext: () => {
+        // In a championship, on to the cup's next race; otherwise the next level.
+        const c = this.champ;
+        if (c) {
+          c.race++;
+          void this.startRace(CUPS[c.cup].tracks[c.race]);
+        } else void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1));
+      },
       onToggleMute: () => this.toggleMute(),
       onSled: (id) => {
         this.save.sled = sledById(id).id;
@@ -166,6 +193,7 @@ class Game {
     difficulty = this.save.difficulty,
     net: NetRace | null = null,
     surfaces: SurfaceOptions = this.save.surfaces,
+    opts: RaceOptions = {},
   ) {
     if (this.busy) return;
     this.busy = true;
@@ -188,7 +216,7 @@ class Game {
       const world = this.world!;
       this.trackIndex = index;
       this.renderer.toneMappingExposure = world.theme.exposure;
-      this.race = new Race(world, difficulty, attract, net, this.save.sled);
+      this.race = new Race(world, difficulty, attract, net, this.save.sled, opts);
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
       if (world.theme.night) this.headlight = addHeadlight(lit);
@@ -211,9 +239,12 @@ class Game {
     this.audio.start();
     this.ui.closeModal();
     this.ui.showMenu(false);
-    this.save.lastTrack = index;
+    if (!this.champ) this.save.lastTrack = index;
     writeSave(this.save);
-    await this.load(index, false);
+    // A cup is a series of ordinary races; the other modes are their own kind of race.
+    const mode = this.champ || this.save.mode === 'championship' ? 'race' : this.save.mode;
+    const ghost = mode === 'trial' ? loadGhost(TRACKS[index].id) : null;
+    await this.load(index, false, this.save.difficulty, null, this.save.surfaces, { mode, ghost });
     this.mode = 'race';
     this.paused = false;
     this.ui.selectTrack(index);
@@ -519,6 +550,12 @@ class Game {
         this.audio.beep(660, 0.15);
         setTimeout(() => this.audio.beep(880, 0.25), 160);
         this.flash('FINAL LAP', 2.2);
+      } else if (e === 'knockout') {
+        this.flash('KNOCKOUT', 1.2);
+        this.audio.beep(330, 0.25);
+      } else if (e === 'eliminated') {
+        this.flash('KNOCKED OUT', 2.4);
+        this.audio.thud(10);
       } else if (e === 'pickup') this.audio.beep(784, 0.12, 0.2);
       else if (e === 'throw') this.audio.beep(330, 0.1, 0.2);
       else if (e === 'struck') this.flash('HIT!', 1.0);
@@ -585,7 +622,14 @@ class Game {
       speedKmh: player.speed * 3.6,
       boost: player.boost,
       boosting: player.boosting,
-      status: [player.item ? 'SNOWBALL  ·  E to throw' : '', player.shield ? 'SHIELD' : '', player.draft > 0.5 ? 'SLIPSTREAM' : ''].filter(Boolean),
+      status: [
+        race.mode === 'elimination' && race.phase === 'racing' ? `KNOCKOUT IN ${Math.ceil(race.knockoutIn)}s` : '',
+        race.mode === 'elimination' && player.place === race.fieldSize && race.phase === 'racing' ? 'YOU ARE LAST' : '',
+        race.mode === 'trial' ? `GOLD ${formatTime((track.def.par ?? 120) * MEDAL_FACTORS[0])}` : '',
+        player.item ? 'SNOWBALL  ·  E to throw' : '',
+        player.shield ? 'SHIELD' : '',
+        player.draft > 0.5 ? 'SLIPSTREAM' : '',
+      ].filter(Boolean),
       banner,
       bannerTone: tone,
       hint,
@@ -597,35 +641,75 @@ class Game {
     this.resultsShown = true;
     const player = race.player!;
     const def = TRACKS[this.trackIndex];
+    const online = race.online;
+    const standings = race.standings();
+    const base = {
+      track: def,
+      difficulty: race.difficulty,
+      standings,
+      playerPlace: player.place,
+      playerTime: player.finishTime,
+      newBest: false,
+      unlockedName: null as string | null,
+      hasNext: false,
+      online,
+    };
+
+    // Time trial: a medal against the clock, and a new ghost if this was the best run yet.
+    if (race.mode === 'trial') {
+      const par = def.par ?? 120;
+      const targets = MEDAL_FACTORS.map((k) => par * k);
+      const time = player.finishTime;
+      const medal = targets.findIndex((limit) => time <= limit);
+      const before = this.save.trials[def.id];
+      const improved = before === undefined || time < before;
+      if (improved) {
+        this.save.trials[def.id] = time;
+        saveGhost(def.id, race.recording);
+      }
+      writeSave(this.save);
+      this.ui.showResults({ ...base, trial: { medal, targets, best: improved ? time : before, improved } });
+      return;
+    }
+
+    // Solo races and knockouts count toward progression; online ones don't.
     const key = resultKey(def.id, race.difficulty);
     const prev = this.save.results[key];
-    const online = race.online;
-    const newBest = !online && !!prev && player.finishTime < prev.bestTime;
-    // Online results don't count toward solo progression.
-    if (!online) this.save.results[key] = {
-      bestPlace: prev ? Math.min(prev.bestPlace, player.place) : player.place,
-      bestTime: prev ? Math.min(prev.bestTime, player.finishTime) : player.finishTime,
-    };
-    let unlockedName: string | null = null;
+    const timed = !player.eliminated;
+    if (!online && timed) {
+      base.newBest = !!prev && player.finishTime < prev.bestTime;
+      this.save.results[key] = {
+        bestPlace: prev ? Math.min(prev.bestPlace, player.place) : player.place,
+        bestTime: prev ? Math.min(prev.bestTime, player.finishTime) : player.finishTime,
+      };
+    }
     const nextIndex = this.trackIndex + 1;
     if (!online && player.place <= 3 && nextIndex < TRACKS.length && this.save.unlocked <= nextIndex) {
       this.save.unlocked = nextIndex + 1;
-      unlockedName = TRACKS[nextIndex].name;
+      base.unlockedName = TRACKS[nextIndex].name;
     }
-    writeSave(this.save);
-    this.ui.showResults({
-      track: def,
-      difficulty: race.difficulty,
-      standings: race.standings(),
-      playerPlace: player.place,
-      playerTime: player.finishTime,
-      newBest,
-      unlockedName,
-      hasNext: nextIndex < TRACKS.length && this.save.unlocked > nextIndex,
-      online,
-    });
-  }
+    base.hasNext = nextIndex < TRACKS.length && this.save.unlocked > nextIndex;
 
+    // Championship: add this race's points and show the table.
+    const c = this.champ;
+    if (c) {
+      const cup = CUPS[c.cup];
+      for (const s of standings) c.points[s.sled.name] = (c.points[s.sled.name] ?? 0) + (CUP_POINTS[s.place - 1] ?? 0);
+      const table = Object.entries(c.points)
+        .map(([name, points]) => ({ name, points, me: name === player.name }))
+        .sort((x, y) => y.points - x.points);
+      const last = c.race >= cup.tracks.length - 1;
+      const final = table.findIndex((row) => row.me) + 1;
+      if (last) this.save.cups[cup.id] = Math.min(this.save.cups[cup.id] ?? 99, final);
+      writeSave(this.save);
+      this.ui.showResults({ ...base, hasNext: !last, champ: { cup: cup.name, race: c.race + 1, races: cup.tracks.length, table, final: last ? final : 0 } });
+      if (last) this.champ = null;
+      return;
+    }
+
+    writeSave(this.save);
+    this.ui.showResults({ ...base, eliminated: player.eliminated });
+  }
   private updateCamera(dt: number, sled: Sled, world: World, orbit: boolean) {
     const cam = this.camera;
     if (orbit) {
@@ -704,3 +788,5 @@ function addHeadlight(sled: Sled) {
 const game = new Game();
 // Handle for debugging from the browser console.
 (window as unknown as { __game: Game }).__game = game;
+// The game's building blocks, for scripted test races from the console.
+(window as unknown as { __lib: object }).__lib = { World, Race, AIDriver, TRACKS, DIFFICULTIES, SLEDS };

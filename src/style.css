@@ -1208,3 +1208,36 @@ kbd {
   background: var(--ice);
   border-radius: 999px;
 }
+
+/* ---------- Race modes ---------- */
+
+.segmented.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.segmented.four .seg {
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+.track-list.cups {
+  grid-template-columns: minmax(0, 1fr);
+}
+.track-card.cup {
+  padding: 9px 12px;
+}
+.track-card.cup .track-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+.modal .section-label {
+  margin: 16px 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.result-place {
+  font-size: 34px;
+}

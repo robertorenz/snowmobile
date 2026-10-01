@@ -87,6 +87,10 @@ export class Sled {
   /** The item being carried, if any. */
   item: 'snowball' | null = null;
 
+  /** Knocked out of an elimination race, and in what order (later is better). */
+  eliminated = false;
+  elimOrder = 0;
+
   /** Top-speed multiplier; AI pace is set through this. */
   speedScale = 1;
   boost = 1;

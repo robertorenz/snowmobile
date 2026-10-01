@@ -82,6 +82,8 @@ export interface TrackDef {
   /** Height of the mountains that rise away from the track. */
   mountain: number;
   trees: number;
+  /** A good time for the whole race, in seconds. Time-trial medals are set from it. */
+  par?: number;
   /** Extra AI pace on later levels. */
   aiBonus: number;
   theme: Theme;
@@ -207,6 +209,7 @@ const MEADOW: Theme = {
 export const TRACKS: TrackDef[] = [
   {
     id: 'pine-meadow',
+    par: 148,
     plunges: [{ at: 0.62, length: 150, height: 24, climbAt: 0.08, climbLength: 190 }],
     slaloms: [{ at: 0.61, length: 190, amp: 8, waves: 1.5 }],
     elevation: 2.2,
@@ -257,6 +260,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'frostbite-ridge',
+    par: 152,
     plunges: [{ at: 0.66, length: 190, height: 55, climbAt: 0.07, climbLength: 210 }],
     slaloms: [{ at: 0.65, length: 240, amp: 11, waves: 2 }],
     elevation: 2.8,
@@ -314,6 +318,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'glacier-run',
+    par: 100,
     plunges: [
       { at: 0.24, length: 190, height: 65 },
       { at: 0.6, length: 200, height: 75 },
@@ -382,6 +387,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'aurora-pass',
+    par: 187,
     plunges: [{ at: 0.62, length: 170, height: 42, climbAt: 0.28, climbLength: 200 }],
     slaloms: [{ at: 0.61, length: 220, amp: 10, waves: 2 }],
     elevation: 2.2,
@@ -443,6 +449,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'whiteout-summit',
+    par: 134,
     plunges: [
       { at: 0.16, length: 190, height: 65 },
       { at: 0.5, length: 200, height: 75 },
@@ -523,6 +530,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'thaw-meadow',
+    par: 121,
     plunges: [{ at: 0.64, length: 170, height: 40, climbAt: 0.46, climbLength: 180 }],
     slaloms: [{ at: 0.63, length: 220, amp: 10, waves: 2 }],
     elevation: 2.5,
@@ -578,6 +586,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'mirror-lake',
+    par: 129,
     elevation: 2.5,
     rugged: 0.6,
     crags: 70,
@@ -625,6 +634,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'switchback-pass',
+    par: 124,
     plunges: [{ at: 0.72, length: 200, height: 65, climbAt: 0.26, climbLength: 220 }],
     slaloms: [{ at: 0.71, length: 250, amp: 11, waves: 2.5 }],
     elevation: 2.1,
@@ -682,6 +692,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'river-leap',
+    par: 125,
     plunges: [{ at: 0.68, length: 180, height: 45, climbAt: 0.1, climbLength: 200 }],
     elevation: 3.1,
     rugged: 0.6,
@@ -732,6 +743,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'farm-gates',
+    par: 122,
     plunges: [{ at: 0.58, length: 170, height: 40, climbAt: 0.14, climbLength: 190 }],
     elevation: 2.5,
     rugged: 0.4,
@@ -780,6 +792,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'highway-hop',
+    par: 128,
     plunges: [{ at: 0.66, length: 180, height: 45, climbAt: 0.14, climbLength: 200 }],
     elevation: 2.5,
     rugged: 0.7,
@@ -826,6 +839,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'devils-canyon',
+    par: 93,
     plunges: [
       { at: 0.38, length: 180, height: 65 },
       { at: 0.745, length: 180, height: 65 },
@@ -895,6 +909,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'corkscrew',
+    par: 163,
     name: 'The Corkscrew',
     blurb: 'A figure of eight that climbs over itself on a bridge, through a tunnel and down a wall of hairpins.',
     closed: true,
@@ -953,6 +968,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'widowmaker',
+    par: 101,
     name: 'Widowmaker',
     blurb: 'Under your own bridge, into the dark, then straight down the mountain. Nothing here is fair.',
     closed: false,
@@ -1029,6 +1045,27 @@ export interface SurfaceOptions {
 }
 
 export const ALL_SURFACES: SurfaceOptions = { ice: true, stone: true, grass: true };
+
+/** A championship: four races, points for each, highest total wins. Tracks are indexes into TRACKS. */
+export interface CupDef {
+  id: string;
+  name: string;
+  blurb: string;
+  tracks: number[];
+}
+
+export const CUPS: CupDef[] = [
+  { id: 'valley', name: 'Valley Cup', blurb: 'The gentler circuits.', tracks: [0, 5, 1, 6] },
+  { id: 'summit', name: 'Summit Cup', blurb: 'Big mountains and long descents.', tracks: [2, 3, 7, 4] },
+  { id: 'daredevil', name: 'Daredevil Cup', blurb: 'Rivers, gates, traffic and chasms to jump.', tracks: [8, 9, 10, 11] },
+  { id: 'legends', name: 'Legends Cup', blurb: 'The four hardest tracks in the game.', tracks: [7, 12, 11, 13] },
+];
+
+/** Championship points by finishing place. */
+export const CUP_POINTS = [10, 7, 5, 3, 2, 1];
+
+/** Time-trial medal times as multiples of a track's par: gold, silver, bronze. */
+export const MEDAL_FACTORS = [1.0, 1.1, 1.25];
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
