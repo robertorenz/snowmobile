@@ -422,8 +422,8 @@ export class World {
           `#include <begin_vertex>
           #ifdef USE_INSTANCING
             float gust = sin(uWind * 1.4 + instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17);
-            transformed.x += gust * 0.011 * position.y * position.y;
-            transformed.z += cos(uWind * 1.1 + instanceMatrix[3].x * 0.13) * 0.007 * position.y * position.y;
+            transformed.x += gust * 0.0035 * position.y * position.y;
+            transformed.z += cos(uWind * 1.1 + instanceMatrix[3].x * 0.13) * 0.0022 * position.y * position.y;
           #endif`,
         );
     };
@@ -463,7 +463,7 @@ export class World {
         trees.setMatrixAt(j, mat);
         // Lighter or darker, a touch warmer or cooler, but always a green: red and blue never exceed it.
         const g = 0.84 + rnd() * 0.3;
-        trees.setColorAt(j, shade.setRGB(g * (0.86 + rnd() * 0.12), g, g * (0.84 + rnd() * 0.12)));
+        trees.setColorAt(j, shade.setRGB(g * (0.9 + rnd() * 0.1), g, g * (0.88 + rnd() * 0.1)));
       });
       trees.castShadow = true;
       trees.receiveShadow = true;
@@ -1450,20 +1450,32 @@ function stripeTexture() {
 
 /** One kind of tree, and how much of the forest it makes up. */
 interface TreeSpecies {
+  name: string;
   geo: THREE.BufferGeometry;
   share: number;
 }
 
+type V3 = [number, number, number];
+
 /**
- * The forest's species. Conifers are built as a tapering trunk carrying tiers
- * of boughs: each tier is a ragged, drooping skirt of pointed branches rather
- * than a smooth cone, with snow lying on its upper side in winter. Meadow
- * tracks add broadleaf trees with rounded crowns.
+ * The forest's species, each with its own silhouette:
+ *
+ * - Spruce: broad and dense, boughs to the ground.
+ * - Douglas fir: very tall and narrow, dark, with long drooping boughs.
+ * - White pine: a long bare trunk under open, level whorls of branches.
+ * - Young fir: a small conifer.
+ * - Tamarack (larch): a slim, airy conifer that sheds its needles, so it stands bare in winter.
+ * - Elm: a trunk that divides into limbs fanning up and out like a vase.
+ * - Birch: slender, with white bark and fine upswept branches.
+ *
+ * Tamarack, elm and birch are bare with snow on them on winter tracks and in
+ * leaf on the meadow tracks.
  */
 function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeSpecies[] {
   const rnd = mulberry32(seed * 419 + 3);
   const bark = new THREE.Color(0x4a3628);
   const frost = new THREE.Color(0xeaf2f8);
+  const noise = makeNoise(seed + 77);
 
   /** Collects loose triangles with a colour per corner. */
   const mesher = () => {
@@ -1473,17 +1485,44 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
       pos.push(...a, ...b, ...c);
       col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
     };
-    const trunk = (r0: number, r1: number, h: number, color: THREE.Color) => {
-      const n = 6;
-      for (let k = 0; k < n; k++) {
-        const a0 = (k / n) * Math.PI * 2;
-        const a1 = ((k + 1) / n) * Math.PI * 2;
-        const b0 = [Math.cos(a0) * r0, 0, Math.sin(a0) * r0];
-        const b1 = [Math.cos(a1) * r0, 0, Math.sin(a1) * r0];
-        const t0 = [Math.cos(a0) * r1, h, Math.sin(a0) * r1];
-        const t1 = [Math.cos(a1) * r1, h, Math.sin(a1) * r1];
-        tri(b0, t0, b1, color, color, color);
-        tri(b1, t0, t1, color, color, color);
+    /** A tapering stick between two points: trunks, limbs and twigs. */
+    const stick = (a: V3, b: V3, r0: number, r1: number, c0: THREE.Color, c1: THREE.Color = c0, sides = 4) => {
+      const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+      const u = new THREE.Vector3(Math.abs(d.y) > 0.9 ? 1 : 0, Math.abs(d.y) > 0.9 ? 0 : 1, 0).cross(d).normalize();
+      const w = new THREE.Vector3().crossVectors(d, u);
+      const at = (p: V3, r: number, k: number) => {
+        const ang = (k / sides) * Math.PI * 2;
+        const cx = Math.cos(ang) * r;
+        const cy = Math.sin(ang) * r;
+        return [p[0] + u.x * cx + w.x * cy, p[1] + u.y * cx + w.y * cy, p[2] + u.z * cx + w.z * cy];
+      };
+      for (let k = 0; k < sides; k++) {
+        const a0 = at(a, r0, k);
+        const a1 = at(a, r0, k + 1);
+        const b0 = at(b, r1, k);
+        const b1 = at(b, r1, k + 1);
+        tri(a0, b0, a1, c0, c1, c0);
+        tri(a1, b0, b1, c0, c1, c1);
+      }
+    };
+    /** A lumpy ball of foliage. */
+    const clump = (c: V3, size: number, squash: number, color: THREE.Color) => {
+      const blob = new THREE.IcosahedronGeometry(1, 0);
+      const p = blob.attributes.position;
+      const shift = rnd() * 9;
+      for (let i = 0; i < p.count; i += 3) {
+        const pts: number[][] = [];
+        for (let j = 0; j < 3; j++) {
+          const x = p.getX(i + j);
+          const y = p.getY(i + j);
+          const z = p.getZ(i + j);
+          const d = size * (1 + 0.3 * noise.noise2(x * 2.1 + y * 1.7 + shift, z * 2.3 - y));
+          pts.push([c[0] + x * d, c[1] + y * d * squash, c[2] + z * d]);
+        }
+        // Sunlit on top, shaded underneath.
+        const up = ((pts[0][1] + pts[1][1] + pts[2][1]) / 3 - c[1]) / (size * squash);
+        const shade = color.clone().multiplyScalar(0.74 + 0.36 * Math.max(-0.4, up) + rnd() * 0.1);
+        tri(pts[0], pts[1], pts[2], shade, shade, shade);
       }
     };
     const build = () => {
@@ -1493,31 +1532,51 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
       geo.computeVertexNormals();
       return geo;
     };
-    return { tri, trunk, build };
+    return { tri, stick, clump, build };
   };
+  type Mesher = ReturnType<typeof mesher>;
 
-  const conifer = (o: { tiers: number; base: number; top: number; height: number; bare: number; droop: number; green: number }) => {
+  /**
+   * A conifer: tiers of boughs up a tapering trunk. Each tier is a ragged
+   * skirt of pointed branches. `overlap` sets how far each tier hangs over
+   * the one below (high is dense, low leaves the trunk showing between
+   * whorls); `droop` how far the tips hang (negative lifts them).
+   */
+  const conifer = (o: {
+    tiers: number;
+    base: number;
+    top: number;
+    height: number;
+    bare: number;
+    droop: number;
+    green: number;
+    overlap?: number;
+    boughs?: number;
+    trunk?: number;
+    snow?: number;
+  }) => {
     const m = mesher();
     const green = new THREE.Color(o.green);
     const deep = green.clone().multiplyScalar(0.55);
+    const snow = o.snow ?? 1;
     // Where snow lies: heavy near the trunk on each bough, thin at the tips.
-    const crest = frosted ? green.clone().lerp(frost, 0.72) : green.clone().multiplyScalar(1.25);
-    const mid = frosted ? green.clone().lerp(frost, 0.26) : green.clone().multiplyScalar(1.08);
+    const crest = frosted ? green.clone().lerp(frost, 0.72 * snow) : green.clone().multiplyScalar(1.25);
+    const mid = frosted ? green.clone().lerp(frost, 0.26 * snow) : green.clone().multiplyScalar(1.08);
     const tip = frosted ? green.clone().lerp(frost, 0.04) : green.clone();
-    m.trunk(0.2, 0.03, o.height * 0.96, bark);
+    m.stick([0, 0, 0], [0, o.height * 0.96, 0], o.trunk ?? 0.2, 0.03, bark, bark, 6);
     const span = o.height - o.bare;
-    const tierH = (span / o.tiers) * 1.75;
+    const tierH = (span / o.tiers) * (o.overlap ?? 1.75);
     for (let t = 0; t < o.tiers; t++) {
       const f = t / (o.tiers - 1);
       const r = (o.base + (o.top - o.base) * f) * (0.88 + rnd() * 0.24);
       const y = o.bare + f * (span - tierH * 0.62);
       const apex = [(rnd() - 0.5) * 0.06, y + tierH, (rnd() - 0.5) * 0.06];
-      const boughs = Math.max(6, Math.round(11 - f * 4));
+      const boughs = Math.max(5, Math.round((o.boughs ?? 11) - f * 4));
       const ring: number[][] = [];
       const twist = rnd() * Math.PI;
       for (let k = 0; k < boughs * 2; k++) {
         const ang = twist + ((k + (rnd() - 0.5) * 0.5) / (boughs * 2)) * Math.PI * 2;
-        // Even points are bough tips, hanging low; odd points are the notches between boughs.
+        // Even points are bough tips; odd points are the notches between boughs.
         const out = k % 2 === 0;
         const rr = out ? r * (0.82 + rnd() * 0.34) : r * (0.5 + rnd() * 0.12);
         const yy = out ? y - o.droop * r * (0.5 + rnd() * 0.7) : y + tierH * 0.13;
@@ -1527,61 +1586,144 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
       for (let k = 0; k < ring.length; k++) {
         const a = ring[k];
         const b = ring[(k + 1) % ring.length];
-        const ca = k % 2 === 0 ? tip : mid;
-        const cb = k % 2 === 0 ? mid : tip;
-        m.tri(apex, b, a, crest, cb, ca);
+        m.tri(apex, b, a, crest, k % 2 === 0 ? mid : tip, k % 2 === 0 ? tip : mid);
         m.tri(under, a, b, deep, deep, deep);
       }
     }
     return m.build();
   };
 
-  const broadleaf = (o: { height: number; crown: number; green: number; lumps: number }) => {
+  /**
+   * Grows a branch and its offshoots. Each generation is shorter, thinner
+   * and splays further from its parent; `lift` bends growth back toward the
+   * sky. Whatever `tip` does (leaves, snow, nothing) happens at the ends.
+   */
+  const grow = (
+    m: Mesher,
+    from: V3,
+    dir: THREE.Vector3,
+    len: number,
+    r: number,
+    depth: number,
+    o: { kids: number; spread: number; shrink: number; lift: number; wood: THREE.Color; tip?: (p: V3, size: number) => void },
+  ) => {
+    const to: V3 = [from[0] + dir.x * len, from[1] + dir.y * len, from[2] + dir.z * len];
+    // Snow sits along the top of bare limbs.
+    const upper = frosted && !meadow && dir.y < 0.75 ? o.wood.clone().lerp(frost, 0.55) : o.wood;
+    m.stick(from, to, r, r * 0.62, o.wood, upper, depth > 1 ? 4 : 3);
+    if (depth === 0) {
+      o.tip?.(to, len);
+      return;
+    }
+    for (let k = 0; k < o.kids; k++) {
+      const around = (k / o.kids) * Math.PI * 2 + rnd() * 1.2;
+      const side = new THREE.Vector3(Math.cos(around), 0, Math.sin(around));
+      const next = dir.clone().multiplyScalar(Math.cos(o.spread)).addScaledVector(side, Math.sin(o.spread) * (0.7 + rnd() * 0.6));
+      next.y += o.lift;
+      next.normalize();
+      // Offshoots leave from the outer part of the limb, not all from its very end.
+      const s = 0.62 + rnd() * 0.38;
+      const base: V3 = [from[0] + dir.x * len * s, from[1] + dir.y * len * s, from[2] + dir.z * len * s];
+      grow(m, base, next, len * o.shrink * (0.85 + rnd() * 0.3), r * 0.6, depth - 1, o);
+    }
+  };
+
+  const up = new THREE.Vector3(0, 1, 0);
+
+  /** Elm: a stout trunk dividing into limbs that fan up and out, so the crown is widest at the top. */
+  const elm = () => {
     const m = mesher();
-    const green = new THREE.Color(o.green);
-    m.trunk(0.24, 0.1, o.height * 0.62, bark);
-    // A couple of limbs reaching into the crown.
-    const noise = makeNoise(seed + o.lumps);
-    for (let k = 0; k < o.lumps; k++) {
-      const a = (k / o.lumps) * Math.PI * 2 + rnd();
-      const off = k === 0 ? 0 : o.crown * (0.45 + rnd() * 0.3);
-      const cx = Math.cos(a) * off;
-      const cz = Math.sin(a) * off;
-      const cy = o.height * (0.62 + rnd() * 0.22) + (k === 0 ? o.crown * 0.35 : 0);
-      const size = o.crown * (k === 0 ? 0.9 : 0.55 + rnd() * 0.3);
-      const blob = new THREE.IcosahedronGeometry(1, 1);
-      const p = blob.attributes.position;
-      for (let i = 0; i < p.count; i += 3) {
-        const pts: number[][] = [];
-        for (let j = 0; j < 3; j++) {
-          const x = p.getX(i + j);
-          const y = p.getY(i + j);
-          const z = p.getZ(i + j);
-          const d = size * (1 + 0.28 * noise.noise2(x * 2.1 + y * 1.7 + k, z * 2.3 - y));
-          pts.push([cx + x * d, cy + y * d * 0.82, cz + z * d]);
-        }
-        // Sunlit leaves on top, shadowed ones underneath.
-        const up = (pts[0][1] + pts[1][1] + pts[2][1]) / 3 - cy;
-        const c = green.clone().multiplyScalar(0.72 + 0.4 * Math.max(0, up / size) + rnd() * 0.12);
-        m.tri(pts[0], pts[1], pts[2], c, c, c);
+    const wood = new THREE.Color(0x54463a);
+    const leaf = new THREE.Color(0x4f8a3a);
+    m.stick([0, 0, 0], [0, 2.6, 0], 0.34, 0.24, wood, wood, 6);
+    grow(m, [0, 2.4, 0], up, 1.5, 0.22, 3, {
+      kids: 3,
+      spread: 0.5,
+      shrink: 0.82,
+      lift: 0.28,
+      wood,
+      tip: meadow ? (p, size) => m.clump([p[0], p[1] + 0.2, p[2]], 0.75 + size * 0.5, 0.62, leaf) : undefined,
+    });
+    return m.build();
+  };
+
+  /** Birch: a slim white trunk banded with dark marks, and fine branches sweeping upward. */
+  const birch = () => {
+    const m = mesher();
+    const white = new THREE.Color(0xe6e2d8);
+    const mark = new THREE.Color(0x2f2a26);
+    const twig = new THREE.Color(0x5a4a40);
+    const leaf = new THREE.Color(0x86b84a);
+    const h = 6.4;
+    const bands = 9;
+    for (let k = 0; k < bands; k++) {
+      const y0 = (k / bands) * h;
+      const y1 = ((k + 1) / bands) * h;
+      const r0 = 0.15 * (1 - k / bands) + 0.03;
+      const r1 = 0.15 * (1 - (k + 1) / bands) + 0.03;
+      // Mostly white, with a short dark scar at the foot of some sections.
+      const scar = y0 + (y1 - y0) * 0.16;
+      m.stick([0, y0, 0], [0, scar, 0], r0, r0, rnd() < 0.6 ? mark : white, white, 5);
+      m.stick([0, scar, 0], [0, y1, 0], r0, r1, white, white, 5);
+    }
+    for (let k = 0; k < 7; k++) {
+      const y = 2.2 + (k / 6) * 3.8;
+      const a = k * 2.4 + rnd();
+      const dir = new THREE.Vector3(Math.cos(a) * 0.62, 0.78, Math.sin(a) * 0.62).normalize();
+      grow(m, [0, y, 0], dir, 1.25 - k * 0.1, 0.045, 1, {
+        kids: 2,
+        spread: 0.45,
+        shrink: 0.7,
+        lift: 0.1,
+        wood: twig,
+        tip: meadow ? (p) => m.clump(p, 0.5 + rnd() * 0.2, 0.8, leaf) : undefined,
+      });
+    }
+    return m.build();
+  };
+
+  /**
+   * Tamarack: a larch. In leaf it is a slim, airy cone of soft light green.
+   * In winter it has dropped its needles and is just a pole with whorls of
+   * short bare branches.
+   */
+  const tamarack = () => {
+    if (meadow) return conifer({ tiers: 8, base: 1.15, top: 0.2, height: 7.4, bare: 1.4, droop: 0.18, green: 0x9cc65a, overlap: 1.15, boughs: 8, trunk: 0.15 });
+    const m = mesher();
+    const wood = new THREE.Color(0x6a5644);
+    const h = 7.4;
+    m.stick([0, 0, 0], [0, h, 0], 0.15, 0.02, wood, wood, 5);
+    const whorls = 10;
+    for (let k = 0; k < whorls; k++) {
+      const f = k / (whorls - 1);
+      const y = 1.5 + f * (h - 2.0);
+      const len = 1.5 * (1 - f) + 0.25;
+      const count = 5;
+      for (let b = 0; b < count; b++) {
+        const a = (b / count) * Math.PI * 2 + k * 0.7 + rnd() * 0.5;
+        // Lower branches sag; upper ones reach up.
+        const dir = new THREE.Vector3(Math.cos(a), -0.12 + f * 0.45, Math.sin(a)).normalize();
+        grow(m, [0, y, 0], dir, len * (0.8 + rnd() * 0.4), 0.035, 1, { kids: 2, spread: 0.6, shrink: 0.45, lift: 0.05, wood });
       }
     }
     return m.build();
   };
 
-  const winterGreen = frosted ? 0x1f4a38 : 0x2f6a3d;
   const species: TreeSpecies[] = [
-    // Spruce: broad, dense, boughs to the ground.
-    { geo: conifer({ tiers: 6, base: 1.75, top: 0.32, height: 6.2, bare: 0.5, droop: 0.34, green: winterGreen }), share: 0.42 },
-    // Pine: tall and narrow on a long bare trunk.
-    { geo: conifer({ tiers: 7, base: 1.15, top: 0.22, height: 8.2, bare: 2.3, droop: 0.22, green: frosted ? 0x24503a : 0x356f3f }), share: 0.3 },
-    // A young fir.
-    { geo: conifer({ tiers: 4, base: 1.2, top: 0.3, height: 3.4, bare: 0.3, droop: 0.3, green: frosted ? 0x2a5a40 : 0x3f7d45 }), share: 0.28 },
+    { name: 'spruce', geo: conifer({ tiers: 6, base: 1.75, top: 0.32, height: 6.2, bare: 0.5, droop: 0.34, green: frosted ? 0x1f4a38 : 0x2f6a3d }), share: 0.2 },
+    // Douglas fir: the giant of the forest. Narrow for its height, dark, boughs hanging long.
+    { name: 'douglas fir', geo: conifer({ tiers: 9, base: 1.55, top: 0.18, height: 10.2, bare: 1.3, droop: 0.5, green: frosted ? 0x183f33 : 0x245a38, overlap: 1.95, trunk: 0.3, snow: 0.8 }), share: 0.2 },
+    // White pine: long clear trunk, then open whorls held level with the trunk showing between them.
+    { name: 'white pine', geo: conifer({ tiers: 5, base: 2.0, top: 0.75, height: 8.4, bare: 3.0, droop: -0.06, green: frosted ? 0x2a5a4c : 0x3a7450, overlap: 0.85, boughs: 8, trunk: 0.24, snow: 0.9 }), share: 0.18 },
+    { name: 'young fir', geo: conifer({ tiers: 4, base: 1.2, top: 0.3, height: 3.4, bare: 0.3, droop: 0.3, green: frosted ? 0x2a5a40 : 0x3f7d45 }), share: 0.12 },
+    { name: 'tamarack', geo: tamarack(), share: 0.12 },
+    { name: 'elm', geo: elm(), share: 0.08 },
+    { name: 'birch', geo: birch(), share: 0.1 },
   ];
   if (meadow) {
-    for (const sp of species) sp.share *= 0.62;
-    species.push({ geo: broadleaf({ height: 5.6, crown: 2.3, green: 0x4f8a3a, lumps: 4 }), share: 0.22 });
-    species.push({ geo: broadleaf({ height: 4.2, crown: 1.7, green: 0x6a9a3c, lumps: 3 }), share: 0.16 });
+    // Down in the valley in spring the broadleaf trees take over.
+    const shares: Record<string, number> = { spruce: 0.13, 'douglas fir': 0.13, 'white pine': 0.14, 'young fir': 0.08, tamarack: 0.14, elm: 0.2, birch: 0.18 };
+    for (const sp of species) sp.share = shares[sp.name];
   }
   return species;
 }
