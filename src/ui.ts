@@ -184,7 +184,7 @@ export class UI {
       const locked = !room && i >= save.unlocked;
       const res = save.results[resultKey(t.id, save.difficulty)];
       const meta = locked
-        ? `Finish top 3 on ${TRACKS[i - 1].name} to unlock`
+        ? `Top 3 on ${TRACKS[i - 1].name}`
         : res
           ? `Best: ${ordinal(res.bestPlace)} · ${formatTime(res.bestTime)}`
           : t.closed
@@ -192,9 +192,9 @@ export class UI {
             : 'Point-to-point descent';
       return `
         <button class="track-card ${i === this.selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-track="${i}" ${locked || (guest && i !== this.selected) ? 'disabled' : ''}>
-          <canvas width="112" height="112"></canvas>
+          <canvas width="88" height="88"></canvas>
           <span class="track-text">
-            <span class="track-level">Level ${i + 1}${res && res.bestPlace <= 3 ? `<span class="medal m${res.bestPlace}">${ordinal(res.bestPlace)}</span>` : ''}</span>
+            <span class="track-level">${i + 1}${res && res.bestPlace <= 3 ? `<span class="medal m${res.bestPlace}">${ordinal(res.bestPlace)}</span>` : ''}</span>
             <span class="track-name">${t.name}</span>
             <span class="track-meta">${meta}</span>
           </span>
@@ -241,12 +241,14 @@ export class UI {
           <div class="brand-sub">Snowmobile Racing</div>
         </header>
         ${roomBox}
-        <div class="section-label">Track</div>
-        <div class="track-list">${cards}</div>
+        <div class="menu-actions">
+          ${startButton}
+        </div>
         <div class="section-label">${room ? 'AI difficulty' : 'Difficulty'}</div>
         <div class="segmented">${diffButtons}</div>
         <p class="diff-blurb">${DIFFICULTIES[difficulty].blurb}</p>
-        ${startButton}
+        <div class="section-label">Track</div>
+        <div class="track-list">${cards}</div>
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
           <button class="btn ghost" data-act="mute">${save.muted ? 'Sound: Off' : 'Sound: On'}</button>
@@ -258,7 +260,7 @@ export class UI {
       </div>`;
 
     this.menu.querySelectorAll<HTMLCanvasElement>('.track-card canvas').forEach((c, i) => {
-      drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 5, 14);
+      drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 4.5, 11);
     });
     this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
     this.menu.querySelector('[data-act="leave"]')?.addEventListener('click', () => this.cb.onLeaveRoom());

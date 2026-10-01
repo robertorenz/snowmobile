@@ -196,7 +196,7 @@ const MEADOW: Theme = {
 export const TRACKS: TrackDef[] = [
   {
     id: 'pine-meadow',
-    elevation: 1.6,
+    elevation: 2.2,
     rugged: 0.35,
     crags: 50,
     waterfalls: [{ at: 0.3, side: 1, gap: 19, facing: 'downstream' }],
@@ -232,7 +232,7 @@ export const TRACKS: TrackDef[] = [
     ],
     rollers: [
       { at: 0.55, length: 60, height: 1.8, count: 3 },
-      { at: 0.86, length: 120, height: 10, count: 1 },
+      { at: 0.86, length: 120, height: 14, count: 1 },
     ],
     river: { from: 0.28, to: 0.5, side: 1, gap: 19, width: 13 },
     obstacles: 4,
@@ -244,7 +244,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'frostbite-ridge',
-    elevation: 2,
+    elevation: 2.8,
     rugged: 0.8,
     crags: 90,
     waterfalls: [{ at: 0.4, side: 1, gap: 24 }],
@@ -288,7 +288,7 @@ export const TRACKS: TrackDef[] = [
     rollers: [
       { at: 0.18, length: 60, height: 1.8, count: 3 },
       { at: 0.52, length: 70, height: 2, count: 3 },
-      { at: 0.3, length: 150, height: 18, count: 1 },
+      { at: 0.3, length: 150, height: 25, count: 1 },
     ],
     obstacles: 7,
     seed: 23,
@@ -299,6 +299,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'glacier-run',
+    elevation: 1.35,
     rugged: 0.9,
     crags: 110,
     waterfalls: [{ at: 0.5, side: -1, gap: 26 }],
@@ -358,7 +359,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'aurora-pass',
-    elevation: 1.6,
+    elevation: 2.2,
     rugged: 0.7,
     crags: 90,
     waterfalls: [{ at: 0.6, side: 1, gap: 24 }],
@@ -417,6 +418,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'whiteout-summit',
+    elevation: 1.35,
     rugged: 1,
     crags: 120,
     name: 'Whiteout Summit',
@@ -486,7 +488,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'thaw-meadow',
-    elevation: 1.8,
+    elevation: 2.5,
     rugged: 0.45,
     crags: 60,
     waterfalls: [
@@ -526,7 +528,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.975, height: 1.2, length: 16 },
     ],
     rollers: [
-      { at: 0.55, length: 130, height: 14, count: 1 },
+      { at: 0.55, length: 130, height: 20, count: 1 },
       { at: 0.76, length: 64, height: 1.8, count: 4 },
     ],
     river: { from: 0.02, to: 0.34, side: 1, gap: 19, width: 14 },
@@ -539,7 +541,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'mirror-lake',
-    elevation: 1.8,
+    elevation: 2.5,
     rugged: 0.6,
     crags: 70,
     waterfalls: [{ at: 0.14, side: 1, gap: 19, facing: 'downstream' }],
@@ -573,7 +575,7 @@ export const TRACKS: TrackDef[] = [
     jumps: [{ at: 0.96, height: 1.4, length: 16 }],
     rollers: [
       { at: 0.05, length: 60, height: 1.8, count: 3 },
-      { at: 0.74, length: 140, height: 14, count: 1 },
+      { at: 0.74, length: 140, height: 20, count: 1 },
     ],
     lake: { x: 0, z: 308, rx: 205, rz: 92, y: 0 },
     river: { from: 0.12, to: 0.24, side: 1, gap: 19, width: 13 },
@@ -586,7 +588,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'switchback-pass',
-    elevation: 1.5,
+    elevation: 2.1,
     rugged: 1,
     crags: 110,
     waterfalls: [
@@ -628,8 +630,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.955, height: 1.5, length: 16 },
     ],
     rollers: [
-      { at: 0.22, length: 120, height: 13, count: 1 },
-      { at: 0.4, length: 110, height: 11, count: 1 },
+      { at: 0.22, length: 120, height: 18, count: 1 },
+      { at: 0.4, length: 110, height: 15, count: 1 },
       { at: 0.03, length: 54, height: 1.8, count: 3 },
     ],
     obstacles: 8,
@@ -641,7 +643,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'river-leap',
-    elevation: 2.2,
+    elevation: 3.1,
     rugged: 0.6,
     crags: 80,
     waterfalls: [
@@ -690,7 +692,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'farm-gates',
-    elevation: 1.8,
+    elevation: 2.5,
     rugged: 0.4,
     crags: 60,
     waterfalls: [{ at: 0.25, side: -1, gap: 24 }],
@@ -737,7 +739,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'highway-hop',
-    elevation: 1.8,
+    elevation: 2.5,
     rugged: 0.7,
     crags: 80,
     waterfalls: [{ at: 0.85, side: 1, gap: 24 }],
@@ -782,6 +784,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'devils-canyon',
+    elevation: 1.35,
     rugged: 1,
     crags: 120,
     waterfalls: [

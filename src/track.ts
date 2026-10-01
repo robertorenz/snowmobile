@@ -6,6 +6,8 @@ import { mulberry32, smoothstep, wrapAngle } from './util';
 const SAMPLE_SPACING = 2;
 const OPEN_START = 60;
 const OPEN_RUNOFF = 100;
+/** The narrowest a pinch gets: room for two sleds, barely. */
+const MIN_WIDTH = 8;
 
 /** Half the length (along the track) of the gap each kind of crossing leaves to jump. */
 const CROSSING_HALF: Record<CrossingKind, number> = { river: 6, chasm: 8, highway: 7.5, gate: 0 };
@@ -140,6 +142,9 @@ export class Track {
         else if (!def.closed && u >= keys[keys.length - 1][0]) w = keys[keys.length - 1][1];
         else w = a[1] + (b[1] - a[1]) * smoothstep(0, 1, span > 0 ? into / span : 0);
       }
+      // Push the contrast: squeezes become real pinches, open sections become wide.
+      const base = def.width;
+      w = w < base ? Math.max(MIN_WIDTH, base - (base - w) * 2.1) : base + (w - base) * 1.8;
       this.hw[i] = w / 2;
     }
     for (let i = 0; i < n; i++) {
@@ -148,6 +153,9 @@ export class Track {
       this.py[i] = def.points[0][1] + (sp[i].y - def.points[0][1]) * (def.elevation ?? 1);
       this.pz[i] = sp[i].z;
     }
+
+    // Pinches leave no room for error at full speed.
+    for (let i = 0; i < n; i++) if (this.hw[i] < 6.5) this.caution[i] = Math.min(this.caution[i], 31);
 
     // Crossings each get a ramp in front of them.
     this.ramps = [...def.jumps];
@@ -177,7 +185,8 @@ export class Track {
           this.py[i] += r.height * 0.5 * (1 - Math.cos(u * r.count * Math.PI * 2));
           // A run of rollers is taken steadily; a single big hill only needs care up to its crest.
           if (r.count > 1) this.caution[i] = 30;
-          else if (u < 0.6) this.caution[i] = 37;
+          // The taller the hill, the slower it has to be crested to land on the course.
+          else if (u < 0.6) this.caution[i] = Math.max(24, 44 - r.height * 0.8);
         }
       }
     }

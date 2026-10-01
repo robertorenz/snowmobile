@@ -258,7 +258,7 @@ export class Sled {
       const e = 1.2;
       const gx = (terrain.height(pos.x + e, pos.z) - terrain.height(pos.x - e, pos.z)) / (2 * e);
       const gz = (terrain.height(pos.x, pos.z + e) - terrain.height(pos.x, pos.z - e)) / (2 * e);
-      const k = (-P.gravity * 0.85) / (1 + gx * gx + gz * gz);
+      const k = (-P.gravity * 1.1) / (1 + gx * gx + gz * gz);
       vf += (gx * fx + gz * fz) * k * dt;
       vl += (gx * lx + gz * lz) * k * dt;
 

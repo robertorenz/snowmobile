@@ -901,3 +901,88 @@ kbd {
 .status.error {
   color: #ff9a9d;
 }
+
+/* ---------- Menu layout: actions on top, compact two-column track grid ---------- */
+
+.menu-panel {
+  width: min(470px, 100vw);
+  padding: 22px 24px 16px;
+}
+.brand-mark {
+  font-size: 34px;
+}
+.menu-actions {
+  margin-top: 16px;
+}
+.menu-panel .section-label {
+  margin: 14px 0 7px;
+}
+.diff-blurb {
+  margin: 7px 2px 0;
+}
+.track-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.track-card {
+  gap: 9px;
+  padding: 5px 8px 5px 5px;
+  border-radius: 8px;
+}
+.track-card canvas {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+}
+.track-level {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  gap: 6px;
+}
+.track-name {
+  font-size: 14px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-meta {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-card .lock svg {
+  width: 15px;
+  height: 15px;
+}
+.medal {
+  font-size: 9px;
+  padding: 0 6px;
+}
+.menu-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.room {
+  margin-top: 12px;
+  padding: 9px 12px;
+}
+.room-code {
+  font-size: 24px;
+}
+@media (max-width: 480px) {
+  .track-list {
+    grid-template-columns: 1fr;
+  }
+}
+.track-list {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.track-card {
+  min-width: 0;
+}
+.menu-panel {
+  overflow-x: hidden;
+}
