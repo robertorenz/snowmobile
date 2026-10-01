@@ -170,6 +170,8 @@ export class World {
   private auroraMat?: THREE.ShaderMaterial;
   private time = 0;
   readonly vehicles: Vehicle[] = [];
+  /** Clock for the wind in the trees. */
+  private wind = { value: 0 };
   readonly pickups: Pickup[] = [];
   /** 0 clear to 1 thick: how heavy the weather is right now. */
   weather = 0;
@@ -407,10 +409,26 @@ export class World {
       falls.some(([fx, fz]) => Math.hypot(x - fx, z - fz) < 17) ||
       built.some((i) => Math.hypot(x - track.px[i], z - track.pz[i]) < track.hw[i] + 6);
 
-    // --- Trees ---
-    const treeGeo = makeTreeGeometry(!theme.meadow);
-    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
-    const trees = new THREE.InstancedMesh(treeGeo, treeMat, def.trees);
+    // --- Trees: several species, each instance its own size, lean and shade ---
+    const species = makeTreeSpecies(!theme.meadow, !!theme.meadow, def.seed);
+    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+    // The tops sway a little in the wind; the trunks stay put.
+    treeMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWind = this.wind;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uWind;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            float gust = sin(uWind * 1.4 + instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17);
+            transformed.x += gust * 0.011 * position.y * position.y;
+            transformed.z += cos(uWind * 1.1 + instanceMatrix[3].x * 0.13) * 0.007 * position.y * position.y;
+          #endif`,
+        );
+    };
+    const planted = species.map(() => [] as THREE.Matrix4[]);
+    const lean = new THREE.Euler();
     let placed = 0;
     let tries = 0;
     while (placed < def.trees && tries < def.trees * 40) {
@@ -424,19 +442,32 @@ export class World {
       if (rnd() > keep) continue;
       terrain.normal(x, z, v);
       if (v.y < 0.78) continue;
-      const scale = 0.9 + rnd() * 1.1;
-      q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
-      s.set(scale, scale * (0.9 + rnd() * 0.35), scale);
-      v.set(x, terrain.height(x, z) - 0.15, z);
-      trees.setMatrixAt(placed++, m.compose(v, q, s));
+      // Pick a species by its share of the forest.
+      let pick = rnd();
+      let kind = 0;
+      while (kind < species.length - 1 && pick > species[kind].share) pick -= species[kind++].share;
+      const scale = 0.8 + rnd() * rnd() * 1.5;
+      // No tree grows dead straight.
+      q.setFromEuler(lean.set((rnd() - 0.5) * 0.12, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.12));
+      s.set(scale * (0.85 + rnd() * 0.3), scale * (0.85 + rnd() * 0.4), scale * (0.85 + rnd() * 0.3));
+      v.set(x, terrain.height(x, z) - 0.2, z);
+      planted[kind].push(new THREE.Matrix4().compose(v, q, s));
+      placed++;
       if (d < 60) this.colliders.add({ x, z, r: 0.35 * scale });
     }
-    trees.count = placed;
-    trees.castShadow = true;
-    trees.receiveShadow = true;
-    trees.frustumCulled = false;
-    this.scene.add(trees);
-
+    const shade = new THREE.Color();
+    species.forEach((sp, k) => {
+      if (!planted[k].length) return;
+      const trees = new THREE.InstancedMesh(sp.geo, treeMat, planted[k].length);
+      planted[k].forEach((mat, j) => {
+        trees.setMatrixAt(j, mat);
+        trees.setColorAt(j, shade.setRGB(0.82 + rnd() * 0.32, 0.86 + rnd() * 0.26, 0.8 + rnd() * 0.3));
+      });
+      trees.castShadow = true;
+      trees.receiveShadow = true;
+      trees.frustumCulled = false;
+      this.scene.add(trees);
+    });
     // --- Rocks ---
     const rockCount = 160;
     const rocks = new THREE.InstancedMesh(
@@ -1275,6 +1306,7 @@ export class World {
     this.sun.position.set(focus.x + (d[0] / l) * 200, focus.y + (d[1] / l) * 200, focus.z + (d[2] / l) * 200);
     this.spray.update(dt);
     this.ambient.update(dt);
+    this.wind.value = this.time;
 
     // Weather drifts: every few minutes the air thickens and the snow comes down harder, then clears again.
     const fog = this.scene.fog as THREE.Fog;
@@ -1414,40 +1446,140 @@ function stripeTexture() {
   return tex;
 }
 
-/** A snow-dusted pine: trunk plus three cone tiers, coloured per vertex. */
-function makeTreeGeometry(frosted: boolean) {
-  const parts: THREE.BufferGeometry[] = [];
-  const paint = (g: THREE.BufferGeometry, fn: (y: number) => THREE.Color) => {
-    const p = g.attributes.position;
-    const c = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const col = fn(p.getY(i));
-      c[i * 3] = col.r;
-      c[i * 3 + 1] = col.g;
-      c[i * 3 + 2] = col.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-  };
-  const trunk = new THREE.CylinderGeometry(0.16, 0.22, 1.4, 6);
-  trunk.translate(0, 0.7, 0);
-  const bark = new THREE.Color(0x4a3628);
-  paint(trunk, () => bark);
-  parts.push(trunk);
+/** One kind of tree, and how much of the forest it makes up. */
+interface TreeSpecies {
+  geo: THREE.BufferGeometry;
+  share: number;
+}
 
-  const green = new THREE.Color(frosted ? 0x1f4a38 : 0x2c6a3c);
-  const frost = new THREE.Color(0xe9f2f8);
-  const tiers: [number, number, number][] = [
-    [1.55, 2.3, 1.0],
-    [1.2, 2.0, 2.3],
-    [0.8, 1.8, 3.5],
+/**
+ * The forest's species. Conifers are built as a tapering trunk carrying tiers
+ * of boughs: each tier is a ragged, drooping skirt of pointed branches rather
+ * than a smooth cone, with snow lying on its upper side in winter. Meadow
+ * tracks add broadleaf trees with rounded crowns.
+ */
+function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeSpecies[] {
+  const rnd = mulberry32(seed * 419 + 3);
+  const bark = new THREE.Color(0x4a3628);
+  const frost = new THREE.Color(0xeaf2f8);
+
+  /** Collects loose triangles with a colour per corner. */
+  const mesher = () => {
+    const pos: number[] = [];
+    const col: number[] = [];
+    const tri = (a: number[], b: number[], c: number[], ca: THREE.Color, cb: THREE.Color, cc: THREE.Color) => {
+      pos.push(...a, ...b, ...c);
+      col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
+    };
+    const trunk = (r0: number, r1: number, h: number, color: THREE.Color) => {
+      const n = 6;
+      for (let k = 0; k < n; k++) {
+        const a0 = (k / n) * Math.PI * 2;
+        const a1 = ((k + 1) / n) * Math.PI * 2;
+        const b0 = [Math.cos(a0) * r0, 0, Math.sin(a0) * r0];
+        const b1 = [Math.cos(a1) * r0, 0, Math.sin(a1) * r0];
+        const t0 = [Math.cos(a0) * r1, h, Math.sin(a0) * r1];
+        const t1 = [Math.cos(a1) * r1, h, Math.sin(a1) * r1];
+        tri(b0, t0, b1, color, color, color);
+        tri(b1, t0, t1, color, color, color);
+      }
+    };
+    const build = () => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.computeVertexNormals();
+      return geo;
+    };
+    return { tri, trunk, build };
+  };
+
+  const conifer = (o: { tiers: number; base: number; top: number; height: number; bare: number; droop: number; green: number }) => {
+    const m = mesher();
+    const green = new THREE.Color(o.green);
+    const deep = green.clone().multiplyScalar(0.55);
+    // Where snow lies: heavy near the trunk on each bough, thin at the tips.
+    const crest = frosted ? green.clone().lerp(frost, 0.9) : green.clone().multiplyScalar(1.25);
+    const mid = frosted ? green.clone().lerp(frost, 0.5) : green.clone().multiplyScalar(1.08);
+    const tip = frosted ? green.clone().lerp(frost, 0.12) : green.clone();
+    m.trunk(0.2, 0.03, o.height * 0.96, bark);
+    const span = o.height - o.bare;
+    const tierH = (span / o.tiers) * 1.75;
+    for (let t = 0; t < o.tiers; t++) {
+      const f = t / (o.tiers - 1);
+      const r = (o.base + (o.top - o.base) * f) * (0.88 + rnd() * 0.24);
+      const y = o.bare + f * (span - tierH * 0.62);
+      const apex = [(rnd() - 0.5) * 0.06, y + tierH, (rnd() - 0.5) * 0.06];
+      const boughs = Math.max(6, Math.round(11 - f * 4));
+      const ring: number[][] = [];
+      const twist = rnd() * Math.PI;
+      for (let k = 0; k < boughs * 2; k++) {
+        const ang = twist + ((k + (rnd() - 0.5) * 0.5) / (boughs * 2)) * Math.PI * 2;
+        // Even points are bough tips, hanging low; odd points are the notches between boughs.
+        const out = k % 2 === 0;
+        const rr = out ? r * (0.82 + rnd() * 0.34) : r * (0.5 + rnd() * 0.12);
+        const yy = out ? y - o.droop * r * (0.5 + rnd() * 0.7) : y + tierH * 0.13;
+        ring.push([Math.cos(ang) * rr, yy, Math.sin(ang) * rr]);
+      }
+      const under = [0, y + tierH * 0.3, 0];
+      for (let k = 0; k < ring.length; k++) {
+        const a = ring[k];
+        const b = ring[(k + 1) % ring.length];
+        const ca = k % 2 === 0 ? tip : mid;
+        const cb = k % 2 === 0 ? mid : tip;
+        m.tri(apex, b, a, crest, cb, ca);
+        m.tri(under, a, b, deep, deep, deep);
+      }
+    }
+    return m.build();
+  };
+
+  const broadleaf = (o: { height: number; crown: number; green: number; lumps: number }) => {
+    const m = mesher();
+    const green = new THREE.Color(o.green);
+    m.trunk(0.24, 0.1, o.height * 0.62, bark);
+    // A couple of limbs reaching into the crown.
+    const noise = makeNoise(seed + o.lumps);
+    for (let k = 0; k < o.lumps; k++) {
+      const a = (k / o.lumps) * Math.PI * 2 + rnd();
+      const off = k === 0 ? 0 : o.crown * (0.45 + rnd() * 0.3);
+      const cx = Math.cos(a) * off;
+      const cz = Math.sin(a) * off;
+      const cy = o.height * (0.62 + rnd() * 0.22) + (k === 0 ? o.crown * 0.35 : 0);
+      const size = o.crown * (k === 0 ? 0.9 : 0.55 + rnd() * 0.3);
+      const blob = new THREE.IcosahedronGeometry(1, 1);
+      const p = blob.attributes.position;
+      for (let i = 0; i < p.count; i += 3) {
+        const pts: number[][] = [];
+        for (let j = 0; j < 3; j++) {
+          const x = p.getX(i + j);
+          const y = p.getY(i + j);
+          const z = p.getZ(i + j);
+          const d = size * (1 + 0.28 * noise.noise2(x * 2.1 + y * 1.7 + k, z * 2.3 - y));
+          pts.push([cx + x * d, cy + y * d * 0.82, cz + z * d]);
+        }
+        // Sunlit leaves on top, shadowed ones underneath.
+        const up = (pts[0][1] + pts[1][1] + pts[2][1]) / 3 - cy;
+        const c = green.clone().multiplyScalar(0.72 + 0.4 * Math.max(0, up / size) + rnd() * 0.12);
+        m.tri(pts[0], pts[1], pts[2], c, c, c);
+      }
+    }
+    return m.build();
+  };
+
+  const winterGreen = frosted ? 0x1f4a38 : 0x2f6a3d;
+  const species: TreeSpecies[] = [
+    // Spruce: broad, dense, boughs to the ground.
+    { geo: conifer({ tiers: 6, base: 1.75, top: 0.32, height: 6.2, bare: 0.5, droop: 0.34, green: winterGreen }), share: 0.42 },
+    // Pine: tall and narrow on a long bare trunk.
+    { geo: conifer({ tiers: 7, base: 1.15, top: 0.22, height: 8.2, bare: 2.3, droop: 0.22, green: frosted ? 0x24503a : 0x356f3f }), share: 0.3 },
+    // A young fir.
+    { geo: conifer({ tiers: 4, base: 1.2, top: 0.3, height: 3.4, bare: 0.3, droop: 0.3, green: frosted ? 0x2a5a40 : 0x3f7d45 }), share: 0.28 },
   ];
-  for (const [r, h, y] of tiers) {
-    const cone = new THREE.ConeGeometry(r, h, 8);
-    const tmp = new THREE.Color();
-    // Snow settles on the upper part of each tier.
-    paint(cone, (py) => tmp.copy(green).lerp(frost, frosted ? Math.pow((py + h / 2) / h, 1.6) * 0.9 : 0));
-    cone.translate(0, y + h / 2, 0);
-    parts.push(cone);
+  if (meadow) {
+    for (const sp of species) sp.share *= 0.62;
+    species.push({ geo: broadleaf({ height: 5.6, crown: 2.3, green: 0x4f8a3a, lumps: 4 }), share: 0.22 });
+    species.push({ geo: broadleaf({ height: 4.2, crown: 1.7, green: 0x6a9a3c, lumps: 3 }), share: 0.16 });
   }
-  return mergeGeometries(parts)!;
+  return species;
 }
