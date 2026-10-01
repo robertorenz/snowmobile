@@ -39,7 +39,9 @@ export interface Obstacle {
   x: number;
   z: number;
   radius: number;
-  kind: 'barrier' | 'boulder';
+  kind: 'barrier' | 'boulder' | 'rock' | 'log';
+  /** Logs lie at this angle to the direction of travel (radians). */
+  angle: number;
 }
 
 /**
@@ -142,7 +144,8 @@ export class Track {
     }
     for (let i = 0; i < n; i++) {
       this.px[i] = sp[i].x;
-      this.py[i] = sp[i].y;
+      // Climbs and drops are exaggerated about the start line's height.
+      this.py[i] = def.points[0][1] + (sp[i].y - def.points[0][1]) * (def.elevation ?? 1);
       this.pz[i] = sp[i].z;
     }
 
@@ -243,7 +246,8 @@ export class Track {
     const to = this.closed ? len - 120 : this.finishIdx * this.ds - 120;
     const taken: number[] = [];
     let tries = 0;
-    while (this.obstacles.length < (def.obstacles ?? 0) && tries++ < 4000) {
+    const count = Math.round((def.obstacles ?? 0) * 1.5);
+    while (this.obstacles.length < count && tries++ < 4000) {
       const s = from + rnd() * (to - from);
       if (taken.some((t) => Math.abs(t - s) < 70)) continue;
       // Keep run-ups and landing zones clear.
@@ -252,16 +256,21 @@ export class Track {
       const idx = this.wrap(Math.round(s / this.ds));
       const hw = this.hw[idx];
       if (hw < 8.5 || Math.abs(this.curv[idx]) > 0.012) continue;
-      const kind = rnd() < 0.55 ? 'barrier' : 'boulder';
-      const lateral = (rnd() < 0.5 ? -1 : 1) * hw * (0.2 + rnd() * 0.5);
+      // Mostly big rocks and fallen logs; the wide ones only where there's room to get by.
+      const pick = rnd();
+      const roomy = hw >= 10;
+      const kind: Obstacle['kind'] = pick < 0.45 ? 'rock' : pick < 0.65 && roomy ? 'log' : pick < 0.82 ? 'boulder' : 'barrier';
+      const radius = kind === 'rock' ? (roomy ? 1.7 + rnd() * 0.8 : 1.4) : kind === 'log' ? 2.7 : kind === 'barrier' ? 1.3 : 1.1 + rnd() * 0.5;
+      const lateral = (rnd() < 0.5 ? -1 : 1) * Math.min(hw * (0.2 + rnd() * 0.5), hw - radius - 0.5);
       taken.push(s);
       this.obstacles.push({
         idx,
         lateral,
         x: this.px[idx] + this.lx[idx] * lateral,
         z: this.pz[idx] + this.lz[idx] * lateral,
-        radius: kind === 'barrier' ? 1.3 : 1.1 + rnd() * 0.5,
+        radius,
         kind,
+        angle: Math.PI / 2 + (rnd() - 0.5) * 0.7,
       });
     }  }
 

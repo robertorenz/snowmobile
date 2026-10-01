@@ -91,6 +91,7 @@ export class Terrain {
     const ice = new Float32Array(nx * nz);
     const river = def.river;
     const lake = def.lake;
+    const rugged = def.rugged ?? 0.5;
 
     for (let iz = 0; iz < nz; iz++) {
       const z = minZ + iz * cell;
@@ -158,7 +159,11 @@ export class Terrain {
         const t = smoothstep(hw + 1.5, hw + 1.5 + BLEND, dd);
 
         const idx = iz * nx + ix;
-        let h = trackH * (1 - t) + (far + mountains + bumps) * t;
+        // Rock ridges: sharp crests that rise close beside the course in places, steep enough to show bare rock.
+        const ridgeLine = 1 - Math.min(1, Math.abs(noise.fbm(x * 0.011 + 31, z * 0.011 - 17, 3)) * 2.6);
+        const patchy = smoothstep(0.38, 0.62, noise.fbm(x * 0.0045 - 9, z * 0.0045 + 4, 2) * 0.5 + 0.5);
+        const crags = rugged * 26 * ridgeLine * ridgeLine * ridgeLine * (0.35 + 0.65 * patchy) * smoothstep(hw + 7, hw + 30, dd);
+        let h = trackH * (1 - t) + (far + mountains + bumps + crags) * t;
 
         // River: a channel cut alongside the track.
         if (river && bi >= 0) {
@@ -208,7 +213,7 @@ export class Terrain {
     const pos = new Float32Array(nx * nz * 3);
     const col = new Float32Array(nx * nz * 3);
     const snow = new THREE.Color(theme.snowTint);
-    const rock = new THREE.Color(0x5b626b);
+    const rock = new THREE.Color(theme.meadow ? 0x6e675c : 0x5b626b);
     for (let iz = 0; iz < nz; iz++) {
       for (let ix = 0; ix < nx; ix++) {
         const i = iz * nx + ix;
@@ -228,9 +233,12 @@ export class Terrain {
         const shade = theme.meadow
           ? 0.85 + 0.18 * noise.fbm(x * 0.015, z * 0.015, 3) + 0.06 * noise.noise2(x * 0.4, z * 0.4)
           : 0.95 + 0.05 * noise.noise2(x * 0.02, z * 0.02);
-        col[i * 3] = (snow.r * (1 - rocky) + rock.r * rocky) * shade;
-        col[i * 3 + 1] = (snow.g * (1 - rocky) + rock.g * rocky) * shade;
-        col[i * 3 + 2] = (snow.b * (1 - rocky) + rock.b * rocky) * shade;
+        // Rock shows its layers.
+        const strata = 0.82 + 0.18 * Math.sin(heights[i] * 0.9 + noise.noise2(x * 0.05, z * 0.05) * 2.5);
+        const lit = shade * (1 - rocky) + strata * rocky;
+        col[i * 3] = (snow.r * (1 - rocky) + rock.r * rocky) * lit;
+        col[i * 3 + 1] = (snow.g * (1 - rocky) + rock.g * rocky) * lit;
+        col[i * 3 + 2] = (snow.b * (1 - rocky) + rock.b * rocky) * lit;
       }
     }
     const index = new Uint32Array((nx - 1) * (nz - 1) * 6);

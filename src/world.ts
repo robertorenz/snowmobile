@@ -4,6 +4,7 @@ import { Track, GATE_HEIGHT } from './track';
 import { Terrain, RIVER_DEPTH, RIVER_WATER, CHASM_DEPTH } from './terrain';
 import type { TrackDef, Theme } from './tracks';
 import { mulberry32 } from './util';
+import { makeNoise } from './noise';
 
 export interface Collider {
   x: number;
@@ -355,6 +356,14 @@ export class World {
     const v = new THREE.Vector3();
     const yAxis = new THREE.Vector3(0, 1, 0);
 
+    // Keep trees clear of the waterfalls so they can be seen.
+    const falls = (def.waterfalls ?? []).map((w) => {
+      const i = track.wrap(Math.round(w.at * track.n));
+      const off = w.side * (track.hw[i] + w.gap);
+      return [track.px[i] + track.lx[i] * off, track.pz[i] + track.lz[i] * off];
+    });
+    const nearFall = (x: number, z: number) => falls.some(([fx, fz]) => Math.hypot(x - fx, z - fz) < 17);
+
     // --- Trees ---
     const treeGeo = makeTreeGeometry(!theme.meadow);
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
@@ -366,7 +375,7 @@ export class World {
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
       const d = terrain.edgeAt(x, z);
-      if (d < 3.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z)) continue;
+      if (d < 3.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z) || nearFall(x, z)) continue;
       // Dense forest lining the course, thinning out up the slopes.
       const keep = d < 45 ? 0.9 : d < 118 ? 0.35 : 0.05;
       if (rnd() > keep) continue;
@@ -454,25 +463,50 @@ export class World {
     poles.frustumCulled = false;
     this.scene.add(poles);
 
+    // --- Rock outcrops beside the course ---
+    const rockGeos = [1, 2, 3].map((k) => makeRockGeometry(def.seed * 10 + k, !theme.meadow, theme.meadow ? 0x978e7e : 0x636a73));
+    const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
+    const cragCount = def.crags ?? 60;
+    const perGeo = rockGeos.map(() => [] as THREE.Matrix4[]);
+    tries = 0;
+    let made = 0;
+    while (made < cragCount && tries++ < cragCount * 60) {
+      const cx = terrain.minX + rnd() * terrain.sizeX;
+      const cz = terrain.minZ + rnd() * terrain.sizeZ;
+      const d = terrain.edgeAt(cx, cz);
+      // Most stand close enough to the course to loom over it.
+      if (d < 5 || d > 95 || (d > 40 && rnd() < 0.6)) continue;
+      // Each outcrop is a tight cluster: one big rock with smaller ones against it.
+      const big = 3 + rnd() * 5.5;
+      const parts = 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < parts; k++) {
+        const size = k === 0 ? big : big * (0.35 + rnd() * 0.35);
+        const a = rnd() * Math.PI * 2;
+        const x = cx + (k === 0 ? 0 : Math.cos(a) * big * 0.9);
+        const z = cz + (k === 0 ? 0 : Math.sin(a) * big * 0.9);
+        if (terrain.edgeAt(x, z) < size * 0.9 + 1.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z)) continue;
+        q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
+        // Some are squat boulders, some tall spires.
+        s.set(size, size * (0.7 + rnd() * rnd() * 2.2), size * (0.75 + rnd() * 0.5));
+        v.set(x, terrain.height(x, z) + s.y * 0.3, z);
+        perGeo[Math.floor(rnd() * rockGeos.length)].push(new THREE.Matrix4().compose(v, q, s));
+        if (terrain.edgeAt(x, z) < 50) this.colliders.add({ x, z, r: size * 0.8 });
+      }
+      made++;
+    }
+    rockGeos.forEach((geo, k) => {
+      const mesh = new THREE.InstancedMesh(geo, rockMat, Math.max(1, perGeo[k].length));
+      perGeo[k].forEach((mat, j) => mesh.setMatrixAt(j, mat));
+      mesh.count = perGeo[k].length;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+    });
+
     // --- Obstacles on the racing surface ---
     if (track.obstacles.length) {
-      const sc = document.createElement('canvas');
-      sc.width = 256;
-      sc.height = 64;
-      const sg = sc.getContext('2d')!;
-      sg.fillStyle = '#f6a821';
-      sg.fillRect(0, 0, 256, 64);
-      sg.fillStyle = '#14181d';
-      for (let x = -64; x < 256; x += 64) {
-        sg.beginPath();
-        sg.moveTo(x, 64);
-        sg.lineTo(x + 32, 64);
-        sg.lineTo(x + 96, 0);
-        sg.lineTo(x + 64, 0);
-        sg.fill();
-      }
-      const stripes = new THREE.CanvasTexture(sc);
-      stripes.colorSpace = THREE.SRGBColorSpace;
+      const stripes = stripeTexture();
       const barrierMat = new THREE.MeshStandardMaterial({
         map: stripes,
         roughness: 0.7,
@@ -481,26 +515,115 @@ export class World {
         emissiveIntensity: theme.night ? 0.7 : 0.25,
       });
       const iceMat = new THREE.MeshStandardMaterial({ color: 0x3f86c4, roughness: 0.3, flatShading: true });
+      const barkMat = new THREE.MeshStandardMaterial({ color: 0x4a3526, roughness: 0.95 });
+      const capMat = new THREE.MeshStandardMaterial({ color: theme.snowTint, roughness: 0.9 });
       const barrierGeo = new THREE.BoxGeometry(2.5, 1.1, 0.55);
       const boulderGeo = new THREE.DodecahedronGeometry(1, 0);
+      const logGeo = new THREE.CylinderGeometry(0.42, 0.5, 5.4, 9).rotateZ(Math.PI / 2);
+      const stubGeo = new THREE.CylinderGeometry(0.07, 0.11, 1.1, 5);
+      const place = (mesh: THREE.Object3D) => {
+        mesh.traverse((m) => {
+          m.castShadow = true;
+          m.receiveShadow = true;
+        });
+        this.scene.add(mesh);
+      };
       for (const o of track.obstacles) {
         const y = terrain.height(o.x, o.z);
+        if (o.kind === 'log') {
+          // A fallen trunk lying across part of the course, with a few broken branch stubs.
+          const log = new THREE.Group();
+          log.add(new THREE.Mesh(logGeo, barkMat));
+          if (!theme.meadow) {
+            const cap = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.14, 0.5), capMat);
+            cap.position.y = 0.42;
+            log.add(cap);
+          }
+          for (const bx of [-1.7, -0.4, 1.2, 2.1]) {
+            const stub = new THREE.Mesh(stubGeo, barkMat);
+            stub.position.set(bx, 0.6, (bx * 7.3) % 0.3);
+            stub.rotation.set(((bx * 3.1) % 0.9) - 0.4, 0, ((bx * 5.7) % 0.8) - 0.4);
+            log.add(stub);
+          }
+          const yaw = track.yawAt(o.idx) + o.angle;
+          log.position.set(o.x, y + 0.42, o.z);
+          // The trunk is built along X; turn it so it lies at o.angle to the direction of travel.
+          log.rotation.y = yaw - Math.PI / 2;
+          place(log);
+          const ax = Math.sin(yaw);
+          const az = Math.cos(yaw);
+          for (const k of [-2.1, -0.7, 0.7, 2.1]) this.colliders.add({ x: o.x + ax * k, z: o.z + az * k, r: 0.75 });
+          continue;
+        }
         let mesh: THREE.Mesh;
         if (o.kind === 'barrier') {
           mesh = new THREE.Mesh(barrierGeo, barrierMat);
           mesh.position.set(o.x, y + 0.55, o.z);
           mesh.rotation.y = track.yawAt(o.idx);
+        } else if (o.kind === 'rock') {
+          mesh = new THREE.Mesh(rockGeos[o.idx % rockGeos.length], rockMat);
+          mesh.position.set(o.x, y + o.radius * 0.3, o.z);
+          mesh.scale.set(o.radius, o.radius * 0.95, o.radius);
+          mesh.rotation.y = o.idx * 1.7;
         } else {
           mesh = new THREE.Mesh(boulderGeo, iceMat);
           mesh.position.set(o.x, y + o.radius * 0.35, o.z);
           mesh.scale.set(o.radius, o.radius * 0.8, o.radius);
           mesh.rotation.y = o.idx;
         }
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        this.colliders.add({ x: o.x, z: o.z, r: o.radius });
+        place(mesh);
+        this.colliders.add({ x: o.x, z: o.z, r: o.kind === 'rock' ? o.radius * 0.9 : o.radius });
       }
+    }
+
+    // --- Waterfalls ---
+    for (const w of def.waterfalls ?? []) {
+      const i = track.wrap(Math.round(w.at * track.n));
+      const off = w.side * (track.hw[i] + w.gap);
+      const x = track.px[i] + track.lx[i] * off;
+      const z = track.pz[i] + track.lz[i] * off;
+      const downstream = w.facing === 'downstream';
+      // Face along the track to feed a river, otherwise toward the course.
+      const face = downstream ? track.yawAt(i) : Math.atan2(-w.side * track.lx[i], -w.side * track.lz[i]);
+      const height = 15 + rnd() * 6;
+      const fall = new THREE.Group();
+      fall.position.set(x, terrain.height(x, z) - 0.8, z);
+      fall.rotation.y = face;
+      // A wall of rock, lower and set back in the middle where the water comes over.
+      for (let k = -2; k <= 2; k++) {
+        const rock = new THREE.Mesh(rockGeos[(k + 2) % rockGeos.length], rockMat);
+        const hgt = height * (k === 0 ? 0.52 : 0.6 + rnd() * 0.25);
+        rock.scale.set(3.4 + rnd(), hgt, 3.2 + rnd());
+        rock.position.set(k * 3.3, hgt * 0.75, k === 0 ? -2.6 : -0.6 - Math.abs(k) * 0.5);
+        rock.rotation.y = rnd() * 6;
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        fall.add(rock);
+      }
+      const water = new THREE.Mesh(new THREE.PlaneGeometry(4.2, height * 1.02, 1, 12), this.fallMaterial());
+      water.position.set(0, height * 0.5, 0.9);
+      water.rotation.x = -0.06;
+      fall.add(water);
+      if (!downstream) {
+        const pool = new THREE.Mesh(
+          new THREE.CircleGeometry(5.5, 20).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ color: theme.meadow ? 0x2f7fb0 : 0x24597e, roughness: 0.12, metalness: 0.35 }),
+        );
+        pool.position.set(0, 1.0, 4.2);
+        fall.add(pool);
+      }
+      // Spray hanging where the water lands.
+      const mistPts: number[] = [];
+      for (let k = 0; k < 26; k++) mistPts.push((rnd() - 0.5) * 6, 0.6 + rnd() * 3.2, 1 + rnd() * 3.5);
+      const mistGeo = new THREE.BufferGeometry();
+      mistGeo.setAttribute('position', new THREE.Float32BufferAttribute(mistPts, 3));
+      const mist = new THREE.Points(
+        mistGeo,
+        new THREE.PointsMaterial({ color: 0xffffff, size: 3.4, map: softDot(), transparent: true, opacity: 0.28, depthWrite: false }),
+      );
+      fall.add(mist);
+      this.scene.add(fall);
+      this.colliders.add({ x, z, r: 6.5 });
     }
 
     // --- River water: a ribbon riding just below the banks ---
@@ -632,6 +755,38 @@ export class World {
     // Local +Z of the beam faces along the track, so racers read the banner head-on.
     gate.rotation.y = track.yawAt(idx) + Math.PI;
     return gate;
+  }
+
+  private fallMat?: THREE.ShaderMaterial;
+
+  /** Falling water: streaks sliding down a white-blue sheet. One material, shared by every waterfall. */
+  private fallMaterial() {
+    this.fallMat ??= new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          float strand = sin(vUv.x * 46.0 + sin(vUv.y * 7.0 - uTime * 3.0) * 1.8) * 0.5 + 0.5;
+          float streak = fract(vUv.y * 3.0 + uTime * 0.85 + sin(vUv.x * 23.0) * 0.35);
+          float foam = smoothstep(0.25, 0.0, vUv.y);
+          vec3 col = mix(vec3(0.5, 0.74, 0.9), vec3(1.0), clamp(strand * 0.55 + streak * 0.35 + foam, 0.0, 1.0));
+          float edge = smoothstep(0.0, 0.14, vUv.x) * (1.0 - smoothstep(0.86, 1.0, vUv.x));
+          gl_FragColor = vec4(col, edge * (0.72 + 0.28 * streak));
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    return this.fallMat;
   }
 
   /** True on a highway's tarmac, where nothing should be planted. */
@@ -834,6 +989,7 @@ export class World {
       (this.snowMat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
     }
     if (this.auroraMat) this.auroraMat.uniforms.uTime.value = this.time;
+    if (this.fallMat) this.fallMat.uniforms.uTime.value = this.time;
     const d = this.theme.sunDir;
     const l = Math.hypot(d[0], d[1], d[2]);
     this.sun.target.position.copy(focus);
@@ -854,6 +1010,46 @@ export class World {
       }
     });
   }
+}
+
+/**
+ * A rough boulder about one unit across, coloured per face: bare rock with
+ * darker bands on the sides and (in winter) snow lying on anything that faces up.
+ */
+function makeRockGeometry(seed: number, snowy: boolean, rockHex: number) {
+  const noise = makeNoise(seed);
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    // Displacement depends only on position, so faces that share a corner stay joined.
+    const d = 1 + 0.32 * noise.noise2(x * 1.7 + y * 2.3, z * 1.9 - y * 1.1) + 0.14 * noise.noise2(x * 4.1 - z * 3.3, y * 4.7);
+    // Flatten the underside so it sits on the ground.
+    p.setXYZ(i, x * d, Math.max(y * d, -0.45), z * d);
+  }
+  geo.computeVertexNormals();
+  const n = geo.attributes.normal;
+  const rock = new THREE.Color(rockHex);
+  const snow = new THREE.Color(0xf1f6fa);
+  const c = new Float32Array(p.count * 3);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < p.count; i += 3) {
+    // One colour per triangle, from its facing and height.
+    const up = n.getY(i);
+    const y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+    const band = 0.78 + 0.22 * Math.sin(y * 6.0 + noise.noise2(p.getX(i) * 2, p.getZ(i) * 2) * 2);
+    tmp.copy(rock).multiplyScalar(band);
+    if (snowy && up > 0.45) tmp.lerp(snow, Math.min(1, (up - 0.45) * 3.5));
+    for (let k = 0; k < 3; k++) {
+      c[(i + k) * 3] = tmp.r;
+      c[(i + k) * 3 + 1] = tmp.g;
+      c[(i + k) * 3 + 2] = tmp.b;
+    }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return geo;
 }
 
 /** Amber and black hazard stripes. */

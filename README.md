@@ -12,8 +12,8 @@ A 3D snowmobile racing game that runs in the browser. Race five AI riders to the
 | Track select, with a demo race behind it | The snowmobile and its working suspension |
 | ![Mirror Lake: racing across the ice](docs/screenshots/mirror-lake.jpg) | ![Aurora Pass at night](docs/screenshots/aurora-pass.jpg) |
 | Mirror Lake: fast, slippery ice | Aurora Pass: night racing by headlight |
-| ![Switchback Pass at golden hour](docs/screenshots/switchback-pass.jpg) | |
-| Switchback Pass: steep hills and obstacles | |
+| ![A waterfall beside Thaw Meadow](docs/screenshots/waterfall.jpg) | ![Rock outcrops and a boulder on the course at Switchback Pass](docs/screenshots/rocks.jpg) |
+| Waterfalls and rock outcrops line the courses | Boulders and fallen logs block parts of the road |
 
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All models, terrain and sound are generated in code — there are no asset files.
 
@@ -57,11 +57,15 @@ A gamepad also works: left stick steers, triggers are throttle and brake, A boos
 | 11 | Highway Hop | Circuit, 2 laps | A highway with traffic crosses the course twice |
 | 12 | Devil's Canyon | Point-to-point descent | Two chasms, a river, a gate and a highway, all downhill |
 
-Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of tall rollers and some big single hills that are steep enough to slow a sled on the way up, and has striped barriers and ice boulders on the racing surface. Hitting one costs most of your speed; the AI riders steer around them. Rivers (Pine Meadow, Thaw Meadow, Mirror Lake) run in a channel beside the track: ride into one and you are put back on the course at a standstill.
+Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of tall rollers and some big single hills that are steep enough to slow a sled on the way up, and has obstacles on the racing surface: mostly big rocks and fallen logs, with some ice boulders and striped barriers. Hitting one costs most of your speed; the AI riders steer around them. Rivers (Pine Meadow, Thaw Meadow, Mirror Lake) run in a channel beside the track: ride into one and you are put back on the course at a standstill.
 
 Finishing in the top 3 unlocks the next level. Best place and time are saved per track and difficulty in the browser's local storage.
 
 Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to the limit they corner, and whether they use boost.
+
+### Scenery
+
+The ground beside each course is broken by rock ridges and clusters of outcrops (snow-capped in winter), and most tracks have a waterfall or two. Outcrops and waterfalls close to the course are solid. The circuits also climb and drop far more than their layouts suggest: Frostbite Ridge rises about 80 m and Switchback Pass about 140 m, with single hills of up to 18 m on top of that.
 
 ### Crossings
 
@@ -117,4 +121,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), `elevation` (multiplies the climbs), `rugged` and `crags` (rock ridges and outcrops), `waterfalls`, a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

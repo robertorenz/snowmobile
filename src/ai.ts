@@ -67,7 +67,7 @@ export class AIDriver {
         else if (ahead > track.n / 2) ahead -= track.n;
       }
       const dist = ahead * track.ds;
-      if (dist < -3 || dist > 22 + speed * 1.4) continue;
+      if (dist < -3 || dist > 30 + speed * 1.9) continue;
       const clear = o.radius + 2.8;
       // Pass on the side we're already on, unless there's no room there.
       let side = s.lateral >= o.lateral ? 1 : -1;
@@ -77,9 +77,9 @@ export class AIDriver {
         dodging = true;
       }
       // Still lined up with it and close: ease off until we're clear.
-      if (dist < 30 && Math.abs(s.lateral - o.lateral) < o.radius + 1.8) blocked = true;
+      if (dist < 38 && Math.abs(s.lateral - o.lateral) < o.radius + 1.8) blocked = true;
     }
-    this.lane += (want - this.lane) * Math.min(1, (dodging ? 6 : 1.8) * dt);
+    this.lane += (want - this.lane) * Math.min(1, (dodging ? 8 : 1.8) * dt);
 
     const tx = track.px[ti] + track.lx[ti] * this.lane;
     const tz = track.pz[ti] + track.lz[ti] * this.lane;

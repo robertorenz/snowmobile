@@ -55,6 +55,14 @@ export interface TrackDef {
   obstacles?: number;
   /** A river running beside part of the course. side: 1 = left of travel, -1 = right; gap is from the track edge to mid-river. */
   river?: { from: number; to: number; side: 1 | -1; gap: number; width: number };
+  /** Multiplies the course's climbs and drops (measured from the start line). */
+  elevation?: number;
+  /** How craggy the ground beside the course is: 0 smooth, 1 walled in by rock ridges. */
+  rugged?: number;
+  /** Number of rock outcrops scattered beside the course. */
+  crags?: number;
+  /** Waterfalls beside the course. gap is from the track edge; 'downstream' ones face along the track to feed a river. */
+  waterfalls?: { at: number; side: 1 | -1; gap: number; facing?: 'track' | 'downstream' }[];
   /** Crossings, each placed at a 0..1 fraction of the track's length. Put them on straights. */
   crossings?: { at: number; kind: CrossingKind }[];
   /** A frozen lake: an ellipse of flat, slippery ice at height y. */
@@ -188,6 +196,10 @@ const MEADOW: Theme = {
 export const TRACKS: TrackDef[] = [
   {
     id: 'pine-meadow',
+    elevation: 1.6,
+    rugged: 0.35,
+    crags: 50,
+    waterfalls: [{ at: 0.3, side: 1, gap: 19, facing: 'downstream' }],
     name: 'Pine Meadow',
     blurb: 'A rolling loop through the pines. Learn the sled here.',
     closed: true,
@@ -220,7 +232,7 @@ export const TRACKS: TrackDef[] = [
     ],
     rollers: [
       { at: 0.55, length: 60, height: 1.8, count: 3 },
-      { at: 0.86, length: 120, height: 6, count: 1 },
+      { at: 0.86, length: 120, height: 10, count: 1 },
     ],
     river: { from: 0.28, to: 0.5, side: 1, gap: 19, width: 13 },
     obstacles: 4,
@@ -232,6 +244,10 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'frostbite-ridge',
+    elevation: 2,
+    rugged: 0.8,
+    crags: 90,
+    waterfalls: [{ at: 0.4, side: 1, gap: 24 }],
     name: 'Frostbite Ridge',
     blurb: 'Climb the ridge at golden hour, then drop off the far side. Four jumps.',
     closed: true,
@@ -272,7 +288,7 @@ export const TRACKS: TrackDef[] = [
     rollers: [
       { at: 0.18, length: 60, height: 1.8, count: 3 },
       { at: 0.52, length: 70, height: 2, count: 3 },
-      { at: 0.3, length: 150, height: 11, count: 1 },
+      { at: 0.3, length: 150, height: 18, count: 1 },
     ],
     obstacles: 7,
     seed: 23,
@@ -283,6 +299,9 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'glacier-run',
+    rugged: 0.9,
+    crags: 110,
+    waterfalls: [{ at: 0.5, side: -1, gap: 26 }],
     name: 'Glacier Run',
     blurb: 'Point-to-point down the glacier: sweeping bends, squeezes and five jumps.',
     closed: false,
@@ -330,7 +349,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.22, length: 70, height: 2, count: 3 },
       { at: 0.68, length: 80, height: 2.2, count: 4 },
     ],
-    obstacles: 10,
+    obstacles: 8,
     seed: 37,
     mountain: 120,
     trees: 1500,
@@ -339,6 +358,10 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'aurora-pass',
+    elevation: 1.6,
+    rugged: 0.7,
+    crags: 90,
+    waterfalls: [{ at: 0.6, side: 1, gap: 24 }],
     name: 'Aurora Pass',
     blurb: 'A technical night circuit over the pass, under the northern lights.',
     closed: true,
@@ -394,6 +417,8 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'whiteout-summit',
+    rugged: 1,
+    crags: 120,
     name: 'Whiteout Summit',
     blurb: 'A long, steep descent through a blizzard. Trust the marker poles.',
     closed: false,
@@ -452,7 +477,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.4, length: 70, height: 2, count: 4 },
       { at: 0.72, length: 60, height: 1.8, count: 3 },
     ],
-    obstacles: 14,
+    obstacles: 10,
     seed: 67,
     mountain: 110,
     trees: 1500,
@@ -461,6 +486,13 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'thaw-meadow',
+    elevation: 1.8,
+    rugged: 0.45,
+    crags: 60,
+    waterfalls: [
+      { at: 0.04, side: 1, gap: 19, facing: 'downstream' },
+      { at: 0.6, side: -1, gap: 24 },
+    ],
     name: 'Thaw Meadow',
     blurb: 'Spring has reached the valley. Only the road still holds snow, and a river runs beside it.',
     closed: true,
@@ -494,7 +526,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.975, height: 1.2, length: 16 },
     ],
     rollers: [
-      { at: 0.55, length: 130, height: 9, count: 1 },
+      { at: 0.55, length: 130, height: 14, count: 1 },
       { at: 0.76, length: 64, height: 1.8, count: 4 },
     ],
     river: { from: 0.02, to: 0.34, side: 1, gap: 19, width: 14 },
@@ -507,6 +539,10 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'mirror-lake',
+    elevation: 1.8,
+    rugged: 0.6,
+    crags: 70,
+    waterfalls: [{ at: 0.14, side: 1, gap: 19, facing: 'downstream' }],
     name: 'Mirror Lake',
     blurb: 'Straight across a frozen lake. The ice is fast and has almost no grip.',
     closed: true,
@@ -537,7 +573,7 @@ export const TRACKS: TrackDef[] = [
     jumps: [{ at: 0.96, height: 1.4, length: 16 }],
     rollers: [
       { at: 0.05, length: 60, height: 1.8, count: 3 },
-      { at: 0.74, length: 140, height: 9, count: 1 },
+      { at: 0.74, length: 140, height: 14, count: 1 },
     ],
     lake: { x: 0, z: 308, rx: 205, rz: 92, y: 0 },
     river: { from: 0.12, to: 0.24, side: 1, gap: 19, width: 13 },
@@ -550,6 +586,13 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'switchback-pass',
+    elevation: 1.5,
+    rugged: 1,
+    crags: 110,
+    waterfalls: [
+      { at: 0.45, side: 1, gap: 24 },
+      { at: 0.7, side: -1, gap: 24 },
+    ],
     name: 'Switchback Pass',
     blurb: 'Twist up a mountain and plunge off the far side. Steep enough to bog you down.',
     closed: true,
@@ -585,8 +628,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.955, height: 1.5, length: 16 },
     ],
     rollers: [
-      { at: 0.22, length: 120, height: 8, count: 1 },
-      { at: 0.4, length: 110, height: 7, count: 1 },
+      { at: 0.22, length: 120, height: 13, count: 1 },
+      { at: 0.4, length: 110, height: 11, count: 1 },
       { at: 0.03, length: 54, height: 1.8, count: 3 },
     ],
     obstacles: 8,
@@ -598,6 +641,13 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'river-leap',
+    elevation: 2.2,
+    rugged: 0.6,
+    crags: 80,
+    waterfalls: [
+      { at: 0.5, side: 1, gap: 52 },
+      { at: 0.955, side: 1, gap: 52 },
+    ],
     name: 'River Leap',
     blurb: 'A river cuts the course twice. Hit the ramps fast or you are swimming.',
     closed: true,
@@ -640,6 +690,10 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'farm-gates',
+    elevation: 1.8,
+    rugged: 0.4,
+    crags: 60,
+    waterfalls: [{ at: 0.25, side: -1, gap: 24 }],
     name: 'Farm Gates',
     blurb: 'Across the farmland, where three fences block the road. Clear the top rail.',
     closed: true,
@@ -683,6 +737,10 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'highway-hop',
+    elevation: 1.8,
+    rugged: 0.7,
+    crags: 80,
+    waterfalls: [{ at: 0.85, side: 1, gap: 24 }],
     name: 'Highway Hop',
     blurb: 'A highway crosses the course twice. Jump the traffic, or grind across the tarmac and hope.',
     closed: true,
@@ -724,6 +782,12 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'devils-canyon',
+    rugged: 1,
+    crags: 120,
+    waterfalls: [
+      { at: 0.34, side: 1, gap: 52 },
+      { at: 0.6, side: -1, gap: 26 },
+    ],
     name: "Devil's Canyon",
     blurb: 'The lot, downhill: two chasms, a river, a gate and a highway. One mistake each is too many.',
     closed: false,
