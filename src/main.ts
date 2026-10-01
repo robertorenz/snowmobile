@@ -477,7 +477,7 @@ class Game {
       const yaw = sled.yaw + Math.PI + Math.sin(a) * 1.1;
       const x = sled.pos.x - Math.sin(yaw) * -11;
       const z = sled.pos.z - Math.cos(yaw) * -11;
-      const y = Math.max(sled.pos.y + 3.2, world.terrain.height(x, z) + 1.5);
+      const y = Math.max(sled.pos.y + 3.2, world.ground(x, z, sled.idx) + 1.5);
       const k = this.camSnap ? 1 : 1 - Math.exp(-3 * dt);
       cam.position.lerp(_v.set(x, y, z), k);
       cam.fov = 55;
@@ -501,13 +501,13 @@ class Game {
     const x = sled.pos.x - Math.sin(this.camYaw) * dist;
     const z = sled.pos.z - Math.cos(this.camYaw) * dist;
     this.camY = lerp(this.camY, sled.pos.y + 2.8, 1 - Math.exp(-7 * dt));
-    const y = Math.max(this.camY, world.terrain.height(x, z) + 1.3);
+    const y = Math.max(this.camY, world.ground(x, z, sled.idx) + 1.3);
     cam.position.set(x, y, z);
     // Aim at the ground ahead rather than level with the sled, so the view tips down into a
     // drop and up a wall of a climb.
     const ax = sled.pos.x + Math.sin(this.camYaw) * 14;
     const az = sled.pos.z + Math.cos(this.camYaw) * 14;
-    const ahead = clamp(world.terrain.height(ax, az) - sled.pos.y, -9, 9);
+    const ahead = clamp(world.ground(ax, az, sled.idx) - sled.pos.y, -9, 9);
     this.camTilt = this.camSnap ? ahead : lerp(this.camTilt, ahead, 1 - Math.exp(-5 * dt));
     cam.lookAt(ax, sled.pos.y + 1.5 + this.camTilt * 0.8, az);
     const fov = 64 + ratio * 20 + (sled.boosting ? 7 : 0);

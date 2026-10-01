@@ -73,6 +73,8 @@ export class Terrain {
     const bnz = Math.ceil(d / BUCKET) + 1;
     const buckets: number[][] = new Array(bnx * bnz);
     for (let i = 0; i < track.n; i++) {
+      // A bridge deck isn't ground: the land under it belongs to the road below.
+      if (track.bridge[i]) continue;
       const bx = Math.floor((track.px[i] - minX) / BUCKET);
       const bz = Math.floor((track.pz[i] - minZ) / BUCKET);
       (buckets[bz * bnx + bx] ??= []).push(i);
@@ -81,7 +83,7 @@ export class Terrain {
 
     // Sparse samples used to carry the track's elevation out into the far field.
     const coarse: number[] = [];
-    for (let i = 0; i < track.n; i += 10) coarse.push(i);
+    for (let i = 0; i < track.n; i += 10) if (!track.bridge[i]) coarse.push(i);
 
     const heights = new Float32Array(nx * nz);
     const dist = new Float32Array(nx * nz);

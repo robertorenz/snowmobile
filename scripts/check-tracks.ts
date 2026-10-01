@@ -36,4 +36,17 @@ for (const def of TRACKS) {
     for (let i = Math.round((c.s - 110) / t.ds); i < (c.s + 70) / t.ds; i++) k = Math.max(k, Math.abs(t.curv[t.wrap(i)]));
     console.log(`    ${c.kind.padEnd(8)} at s=${c.s.toFixed(0).padStart(5)}  tightest radius nearby ${(1 / Math.max(k, 1e-5)).toFixed(0)} m  width ${(t.hw[c.idx] * 2).toFixed(0)} m`);
   }
+  // Bridges and tunnels: where they fall along the lap, and how much headroom the road underneath gets.
+  for (const [a, b] of t.bridgeSpans) {
+    const mid = (a + b) >> 1;
+    let under = -1;
+    let best = Infinity;
+    for (let i = 0; i < t.n; i++) {
+      if (t.bridge[i]) continue;
+      const d = Math.hypot(t.px[i] - t.px[mid], t.pz[i] - t.pz[mid]);
+      if (d < best) { best = d; under = i; }
+    }
+    console.log(`    bridge   ${(a / t.n).toFixed(3)}-${(b / t.n).toFixed(3)}  road below at ${(under / t.n).toFixed(3)}  headroom ${(t.py[mid] - t.py[under]).toFixed(1)} m`);
+  }
+  for (const [a, b] of t.tunnelSpans) console.log(`    tunnel   ${(a / t.n).toFixed(3)}-${(b / t.n).toFixed(3)}  (${((b - a) * t.ds).toFixed(0)} m)`);
 }

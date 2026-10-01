@@ -1,6 +1,6 @@
 # Powder Rush — Snowmobile Racing
 
-A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across twelve tracks, on three difficulty levels.
+A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across fourteen tracks, on three difficulty levels.
 
 **Play it:** https://robertorenz.github.io/snowmobile/
 
@@ -58,6 +58,8 @@ A gamepad also works: left stick steers, triggers are throttle and brake, A boos
 | 10 | Farm Gates | Circuit, 2 laps | Three fences across a meadow road; clear the top rail |
 | 11 | Highway Hop | Circuit, 2 laps | A highway with traffic crosses the course twice |
 | 12 | Devil's Canyon | Point-to-point descent | Two chasms, a river, a gate and a highway, all downhill |
+| 13 | The Corkscrew | Circuit, 2 laps | A figure of eight that crosses over itself on a bridge; two tunnels, two slalom plunges, bends down to a 14 m radius |
+| 14 | Widowmaker | Point-to-point descent | Under its own bridge, two tunnels, four slalom plunges and a chasm before the line |
 
 Every track widens and narrows along its length (from 8 m in the pinches, barely room for two sleds, to about 40 m in the open sections), has runs of tall rollers and some big single hills that are steep enough to slow a sled on the way up, and has obstacles on the racing surface: mostly big rocks and fallen logs, with some ice boulders and striped barriers. Hitting one costs most of your speed; the AI riders steer around them. Rivers (Pine Meadow, Thaw Meadow, Mirror Lake) run in a channel beside the track: ride into one and you are put back on the course at a standstill.
 
@@ -72,6 +74,15 @@ The ground beside each course is broken by rock ridges and clusters of outcrops 
 ### Plunges
 
 Eleven of the twelve tracks (all but Mirror Lake) have at least one plunge: a drop of 24 to 75 m in under 200 m, with grades of 40 to 60%. On eight of them the drop is bent into a slalom with bends as tight as a 20 m radius, so it cannot be taken flat out: brake, swerve, and pick a line. On the circuits each plunge is paid for by an equally steep climb elsewhere on the lap. The camera tips down into drops and up at climbs so you can see what is coming.
+
+### Bridges and tunnels
+
+On the last two tracks the course crosses over itself: the higher pass rides on a bridge with 14 m of headroom, and the lower one runs underneath between the piers. Bridges and tunnels have solid sides, so there is no deep snow to run wide into; you scrape the wall and lose speed instead.
+
+| | |
+|---|---|
+| ![Passing under the bridge on The Corkscrew](docs/screenshots/bridge.jpg) | ![A tunnel mouth on The Corkscrew](docs/screenshots/tunnel.jpg) |
+| The Corkscrew: under the bridge you will cross later in the lap | A tunnel |
 
 ### Crossings
 
@@ -127,4 +138,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), `elevation` (multiplies the climbs), `plunges` and `slaloms` (steep drops and the weave through them), `rugged` and `crags` (rock ridges and outcrops), `waterfalls`, a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), `elevation` (multiplies the climbs), `plunges` and `slaloms` (steep drops and the weave through them), `bridges` (a point where the course crosses itself) and `tunnels`, `rugged` and `crags` (rock ridges and outcrops), `waterfalls`, a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

@@ -362,7 +362,12 @@ export class World {
       const off = w.side * (track.hw[i] + w.gap);
       return [track.px[i] + track.lx[i] * off, track.pz[i] + track.lz[i] * off];
     });
-    const nearFall = (x: number, z: number) => falls.some(([fx, fz]) => Math.hypot(x - fx, z - fz) < 17);
+    // ...and out from under bridges and off tunnel roofs.
+    const built: number[] = [];
+    for (const [a, b] of [...track.bridgeSpans, ...track.tunnelSpans]) for (let i = a; i <= b; i += 3) built.push(i);
+    const nearFall = (x: number, z: number) =>
+      falls.some(([fx, fz]) => Math.hypot(x - fx, z - fz) < 17) ||
+      built.some((i) => Math.hypot(x - track.px[i], z - track.pz[i]) < track.hw[i] + 6);
 
     // --- Trees ---
     const treeGeo = makeTreeGeometry(!theme.meadow);
@@ -450,6 +455,7 @@ export class World {
     q.identity();
     s.set(1, 1, 1);
     for (let i = 0; i < track.n; i += step) {
+      if (track.walled[i]) continue;
       for (const side of [1, -1]) {
         const x = track.px[i] + track.lx[i] * side * (track.hw[i] + 0.4);
         const z = track.pz[i] + track.lz[i] * side * (track.hw[i] + 0.4);
@@ -484,7 +490,7 @@ export class World {
         const a = rnd() * Math.PI * 2;
         const x = cx + (k === 0 ? 0 : Math.cos(a) * big * 0.9);
         const z = cz + (k === 0 ? 0 : Math.sin(a) * big * 0.9);
-        if (terrain.edgeAt(x, z) < size * 0.9 + 1.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z)) continue;
+        if (nearFall(x, z) || terrain.edgeAt(x, z) < size * 0.9 + 1.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z)) continue;
         q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
         // Some are squat boulders, some tall spires.
         s.set(size, size * (0.7 + rnd() * rnd() * 2.2), size * (0.75 + rnd() * 0.5));
@@ -664,6 +670,7 @@ export class World {
       this.scene.add(water);
     }
 
+    this.buildStructures();
     this.buildCrossings();
 
     // --- Start / finish gates ---
@@ -757,6 +764,30 @@ export class World {
     return gate;
   }
 
+  /**
+   * Height of whatever a sled at track sample idx is riding on: the bridge
+   * deck if it's on a bridge, otherwise the terrain.
+   */
+  ground(x: number, z: number, idx: number) {
+    const t = this.track;
+    if (t.bridge[idx]) {
+      const rx = x - t.px[idx];
+      const rz = z - t.pz[idx];
+      if (Math.abs(rx * t.lx[idx] + rz * t.lz[idx]) < t.hw[idx] + 1.5) {
+        const along = Math.max(-t.ds, Math.min(t.ds, rx * t.tx[idx] + rz * t.tz[idx]));
+        return t.py[idx] + along * t.slope[idx];
+      }
+    }
+    return this.terrain.height(x, z);
+  }
+
+  groundNormal(x: number, z: number, idx: number, out: THREE.Vector3) {
+    if (!this.track.bridge[idx]) return this.terrain.normal(x, z, out);
+    const t = this.track;
+    // The deck is flat across and tilted along its length.
+    return out.set(-t.tx[idx] * t.slope[idx], 1, -t.tz[idx] * t.slope[idx]).normalize();
+  }
+
   private fallMat?: THREE.ShaderMaterial;
 
   /** Falling water: streaks sliding down a white-blue sheet. One material, shared by every waterfall. */
@@ -801,6 +832,115 @@ export class World {
       if (Math.abs(along) < c.half + 5 && Math.abs(across) < ROAD_HALF + 10) return true;
     }
     return false;
+  }
+
+  /** Bridges where the course crosses over itself, and tunnels. */
+  private buildStructures() {
+    const { track, terrain, theme } = this;
+    const steel = new THREE.MeshStandardMaterial({ color: 0x33404d, roughness: 0.6, metalness: 0.5, side: THREE.DoubleSide });
+    const deckMat = new THREE.MeshStandardMaterial({ color: theme.trackTint, roughness: 0.9 });
+    const railMat = new THREE.MeshStandardMaterial({ color: 0xd8343a, roughness: 0.6 });
+    /** A strip of quads between two polylines. */
+    const strip = (a: number[], b: number[], mat: THREE.Material) => {
+      const idx: number[] = [];
+      const n = a.length / 3;
+      for (let k = 0; k < n - 1; k++) idx.push(k, n + k, k + 1, k + 1, n + k, n + k + 1);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute([...a, ...b], 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    };
+    /** Points along a span, offset sideways and vertically from the centerline. */
+    const line = (a: number, b: number, side: number, dy: number) => {
+      const out: number[] = [];
+      for (let i = a; i <= b; i++) {
+        out.push(track.px[i] + track.lx[i] * side * track.hw[i], track.py[i] + dy, track.pz[i] + track.lz[i] * side * track.hw[i]);
+      }
+      return out;
+    };
+
+    for (const [a, b] of track.bridgeSpans) {
+      // Deck, underside, girders and guard rails.
+      strip(line(a, b, 1, 0.02), line(a, b, -1, 0.02), deckMat);
+      strip(line(a, b, -1, -1.3), line(a, b, 1, -1.3), steel);
+      for (const side of [1, -1]) {
+        strip(line(a, b, side, -1.3), line(a, b, side, 1.0), steel);
+        strip(line(a, b, side * 1.02, 0.95), line(a, b, side * 1.02, 1.2), railMat);
+      }
+      // Piers down to the ground, except where the road below runs.
+      const pierGeo = new THREE.CylinderGeometry(0.55, 0.7, 1, 8);
+      for (let i = a; i <= b; i += 7) {
+        for (const side of [1, -1]) {
+          const x = track.px[i] + track.lx[i] * side * (track.hw[i] - 0.8);
+          const z = track.pz[i] + track.lz[i] * side * (track.hw[i] - 0.8);
+          if (terrain.edgeAt(x, z) < 2.5) continue;
+          const base = terrain.height(x, z) - 1;
+          const top = track.py[i] - 1.3;
+          if (top - base < 1) continue;
+          const pier = new THREE.Mesh(pierGeo, steel);
+          pier.scale.y = top - base;
+          pier.position.set(x, (top + base) / 2, z);
+          pier.castShadow = true;
+          this.scene.add(pier);
+          this.colliders.add({ x, z, r: 0.9 });
+        }
+      }
+    }
+
+    const rockOut = new THREE.MeshStandardMaterial({ color: theme.meadow ? 0x8a8273 : 0x59606a, roughness: 0.95, flatShading: true });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1c2229, roughness: 0.9, side: THREE.BackSide });
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffc56b, emissiveIntensity: 3 });
+    for (const [a, b] of track.tunnelSpans) {
+      // A vaulted tube: rings of points from one wall, over the roof, to the other.
+      const K = 10;
+      const pos: number[] = [];
+      const idx: number[] = [];
+      for (let i = a; i <= b; i++) {
+        const r = track.hw[i] + 0.9;
+        for (let k = 0; k <= K; k++) {
+          const ang = (k / K) * Math.PI;
+          const side = Math.cos(ang) * r;
+          pos.push(track.px[i] + track.lx[i] * side, track.py[i] - 0.5 + Math.sin(ang) * r * 0.82 + 0.5, track.pz[i] + track.lz[i] * side);
+        }
+        if (i > a) {
+          const row = (i - a) * (K + 1);
+          for (let k = 0; k < K; k++) {
+            const p = row + k;
+            const q = p - (K + 1);
+            idx.push(q, p, q + 1, q + 1, p, p + 1);
+          }
+        }
+        // A lamp on the roof every so often.
+        if ((i - a) % 6 === 3) {
+          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.3), lampMat);
+          lamp.position.set(track.px[i], track.py[i] + r * 0.82 - 0.15, track.pz[i]);
+          lamp.rotation.y = track.yawAt(i);
+          this.scene.add(lamp);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const shell = new THREE.Mesh(geo, rockOut);
+      shell.castShadow = true;
+      // The same shell seen from inside is dark.
+      this.scene.add(shell, new THREE.Mesh(geo, dark));
+      // A heavy stone arch at each mouth.
+      for (const i of [a, b]) {
+        const r = track.hw[i] + 1.5;
+        const arch = new THREE.Mesh(new THREE.TorusGeometry(r, 0.9, 6, 14, Math.PI), rockOut);
+        arch.scale.y = 0.82;
+        arch.position.set(track.px[i], track.py[i], track.pz[i]);
+        arch.rotation.y = track.yawAt(i);
+        arch.castShadow = true;
+        this.scene.add(arch);
+      }
+    }
   }
 
   /** What riders have to jump: water, a pit, a fence, or a road with traffic on it. */

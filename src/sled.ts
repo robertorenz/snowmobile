@@ -144,7 +144,7 @@ export class Sled {
       const k = 1 - Math.exp(-12 * dt);
       this.pos.lerp(this.netPos, k);
       this.yaw += wrapAngle(this.netYaw - this.yaw) * k;
-      this.pos.y = Math.max(this.pos.y, world.terrain.height(this.pos.x, this.pos.z));
+      this.pos.y = Math.max(this.pos.y, world.ground(this.pos.x, this.pos.z, this.idx));
       this.idx = world.track.nearest(this.pos.x, this.pos.z, this.idx);
     }
     this.syncModel(dt);
@@ -165,7 +165,7 @@ export class Sled {
   /** Puts the sled on the track at path distance s, offset sideways by lateral. */
   spawn(world: World, s: number, lateral: number) {
     const { track, terrain } = world;
-    this.terrainRef = terrain;
+    this.worldRef = world;
     if (!this.model.group.parent) world.scene.add(this.model.group);
     const steps = Math.round(s / track.ds);
     this.idx = track.wrap(steps);
@@ -174,12 +174,12 @@ export class Sled {
     this.lateral = lateral;
     const x = track.px[this.idx] + track.lx[this.idx] * lateral;
     const z = track.pz[this.idx] + track.lz[this.idx] * lateral;
-    this.pos.set(x, terrain.height(x, z), z);
+    this.pos.set(x, world.ground(x, z, this.idx), z);
     this.vel.set(0, 0, 0);
     this.yaw = track.yawAt(this.idx);
     this.grounded = true;
     this.airTime = 0;
-    terrain.normal(x, z, this.up);
+    world.groundNormal(x, z, this.idx, this.up);
     this.syncModel(0);
   }
 
@@ -193,7 +193,7 @@ export class Sled {
       this.progress = this.progressBase;
       this.idx = i;
     }
-    this.pos.set(track.px[i], terrain.height(track.px[i], track.pz[i]), track.pz[i]);
+    this.pos.set(track.px[i], world.ground(track.px[i], track.pz[i], this.idx), track.pz[i]);
     this.vel.set(0, 0, 0);
     this.yaw = track.yawAt(i);
     this.lateral = 0;
@@ -210,7 +210,7 @@ export class Sled {
 
     if (frozen) {
       vel.set(0, 0, 0);
-      pos.y = terrain.height(pos.x, pos.z);
+      pos.y = world.ground(pos.x, pos.z, this.idx);
       this.syncModel(dt);
       return;
     }
@@ -256,8 +256,8 @@ export class Sled {
 
       // Gravity along the slope.
       const e = 1.2;
-      const gx = (terrain.height(pos.x + e, pos.z) - terrain.height(pos.x - e, pos.z)) / (2 * e);
-      const gz = (terrain.height(pos.x, pos.z + e) - terrain.height(pos.x, pos.z - e)) / (2 * e);
+      const gx = (world.ground(pos.x + e, pos.z, this.idx) - world.ground(pos.x - e, pos.z, this.idx)) / (2 * e);
+      const gz = (world.ground(pos.x, pos.z + e, this.idx) - world.ground(pos.x, pos.z - e, this.idx)) / (2 * e);
       const k = (-P.gravity * 1.1) / (1 + gx * gx + gz * gz);
       vf += (gx * fx + gz * fz) * k * dt;
       vl += (gx * lx + gz * lz) * k * dt;
@@ -271,10 +271,10 @@ export class Sled {
     }
 
     // --- Move, then resolve against the snow ---
-    const prevGround = terrain.height(pos.x, pos.z);
+    const prevGround = world.ground(pos.x, pos.z, this.idx);
     pos.x += vel.x * dt;
     pos.z += vel.z * dt;
-    const ground = terrain.height(pos.x, pos.z);
+    const ground = world.ground(pos.x, pos.z, this.idx);
     const groundVy = (ground - prevGround) / dt;
     vel.y -= P.gravity * dt;
     pos.y += vel.y * dt;
@@ -350,10 +350,28 @@ export class Sled {
     this.lateral = rx * track.lx[i] + rz * track.lz[i];
     this.progress = this.progressBase + clamp(rx * track.tx[i] + rz * track.tz[i], -track.ds, track.ds);
 
+    // --- Bridges and tunnels have solid sides ---
+    if (track.walled[i]) {
+      const limit = track.hw[i] - 0.7;
+      if (Math.abs(this.lateral) > limit) {
+        const over = this.lateral - Math.sign(this.lateral) * limit;
+        pos.x -= track.lx[i] * over;
+        pos.z -= track.lz[i] * over;
+        this.lateral -= over;
+        const vlat = vel.x * track.lx[i] + vel.z * track.lz[i];
+        if (vlat * over > 0) {
+          // Scrape along the wall: lose the sideways speed and a little of the rest.
+          vel.x = (vel.x - track.lx[i] * vlat * 1.2) * 0.985;
+          vel.z = (vel.z - track.lz[i] * vlat * 1.2) * 0.985;
+          if (Math.abs(vlat) > 3) this.impact = Math.max(this.impact, Math.abs(vlat));
+        }
+      }
+    }
+
     // --- Gates: clear the top rail or be sent back for another run ---
     for (const c of track.crossings) {
       if (c.kind !== 'gate' || old >= c.idx || this.idx < c.idx || this.idx - old > 30) continue;
-      if (pos.y - terrain.height(pos.x, pos.z) < GATE_HEIGHT) {
+      if (pos.y - world.ground(pos.x, pos.z, this.idx) < GATE_HEIGHT) {
         this.resetToTrack(world);
         this.impact = 9;
       }
@@ -364,8 +382,8 @@ export class Sled {
 
   private syncModel(dt: number) {
     const g = this.model.group;
-    const terrain = this.terrainRef;
-    if (terrain && this.grounded) terrain.normal(this.pos.x, this.pos.z, _n);
+    const world = this.worldRef;
+    if (world && this.grounded) world.groundNormal(this.pos.x, this.pos.z, this.idx, _n);
     else {
       // In the air the nose follows the arc of the jump.
       const sp = Math.max(this.speed, 4);
@@ -403,12 +421,12 @@ export class Sled {
       const follow = 1 - Math.exp(-30 * dt);
       for (let i = 0; i < 2; i++) {
         let target = -0.13;
-        if (terrain && this.grounded) {
+        if (world && this.grounded) {
           const side = i === 0 ? 0.6 : -0.6;
           const dx = fz * side + fx * 0.85;
           const dz = -fx * side + fz * 0.85;
           const plane = this.pos.y - (this.up.x * dx + this.up.z * dz) / this.up.y;
-          target = clamp(terrain.height(this.pos.x + dx, this.pos.z + dz) - plane, -0.16, 0.2);
+          target = clamp(world.ground(this.pos.x + dx, this.pos.z + dz, this.idx) - plane, -0.16, 0.2);
         }
         this.skiTravel[i] += (target - this.skiTravel[i]) * follow;
       }
@@ -426,5 +444,5 @@ export class Sled {
   private pitch = 0;
   private skiTravel = [0, 0];
 
-  private terrainRef?: World['terrain'];
+  private worldRef?: World;
 }

@@ -62,6 +62,13 @@ export class Track {
   readonly hw: Float32Array;
   readonly obstacles: Obstacle[] = [];
   readonly crossings: Crossing[] = [];
+  /** 1 where the course is carried on a bridge over another part of itself. */
+  readonly bridge: Uint8Array;
+  /** 1 where the course has solid sides: on bridges and in tunnels. */
+  readonly walled: Uint8Array;
+  /** Sample ranges [first, last] of each bridge and each tunnel. */
+  readonly bridgeSpans: [number, number][] = [];
+  readonly tunnelSpans: [number, number][] = [];
   /** Every ramp on the course: the track's own jumps plus the one before each crossing. */
   readonly ramps: JumpDef[];
   /** 1 where the course runs over a highway's tarmac. */
@@ -226,6 +233,40 @@ export class Track {
       }
     }
 
+    // Heights are final now; crossings sit at the ground level they ended up with.
+    for (const c of this.crossings) c.y = this.py[c.idx];
+
+    // Bridges: where the course crosses itself, the higher of the two passes rides on a deck.
+    this.bridge = new Uint8Array(n);
+    this.walled = new Uint8Array(n);
+    for (const b of def.bridges ?? []) {
+      // Collect each pass through the crossing point as a run of consecutive samples.
+      const runs: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        if (Math.hypot(this.px[i] - b.x, this.pz[i] - b.z) > b.span / 2) continue;
+        const last = runs[runs.length - 1];
+        if (last && last[last.length - 1] === i - 1) last.push(i);
+        else runs.push([i]);
+      }
+      if (runs.length < 2) continue;
+      const mean = (r: number[]) => r.reduce((sum, i) => sum + this.py[i], 0) / r.length;
+      const top = runs.reduce((a, r) => (mean(r) > mean(a) ? r : a));
+      for (const i of top) {
+        this.bridge[i] = this.walled[i] = 1;
+        this.hw[i] = Math.min(Math.max(this.hw[i], 5.5), 7);
+      }
+      this.bridgeSpans.push([top[0], top[top.length - 1]]);
+    }
+    for (const tn of def.tunnels ?? []) {
+      const a = Math.floor(tn.from * n);
+      const z = Math.min(n - 1, Math.ceil(tn.to * n));
+      for (let i = a; i <= z; i++) {
+        this.walled[i] = 1;
+        this.hw[i] = Math.min(Math.max(this.hw[i], 5), 7);
+      }
+      this.tunnelSpans.push([a, z]);
+    }
+
     const yaw = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const a = this.wrap(i - 1);
@@ -286,7 +327,7 @@ export class Track {
       if ((def.rollers ?? []).some((r) => s > r.at * len - 20 && s < r.at * len + r.length + 30)) continue;
       const idx = this.wrap(Math.round(s / this.ds));
       const hw = this.hw[idx];
-      if (hw < 8.5 || Math.abs(this.curv[idx]) > 0.012) continue;
+      if (hw < 8.5 || Math.abs(this.curv[idx]) > 0.012 || this.walled[idx]) continue;
       // Mostly big rocks and fallen logs; the wide ones only where there's room to get by.
       const pick = rnd();
       const roomy = hw >= 10;

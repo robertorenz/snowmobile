@@ -986,3 +986,28 @@ kbd {
 .menu-panel {
   overflow-x: hidden;
 }
+
+/* The track grid scrolls on its own if it outgrows the panel, so the buttons above it never move. */
+.menu-panel {
+  overflow-y: hidden;
+}
+.track-list {
+  flex: 0 1 auto;
+  min-height: 110px;
+  overflow-y: auto;
+  padding-right: 2px;
+  align-content: start;
+}
+.diff-blurb {
+  display: none;
+}
+.track-card {
+  padding: 4px 8px 4px 4px;
+}
+.track-card canvas {
+  width: 35px;
+  height: 35px;
+}
+.track-list {
+  gap: 5px;
+}
