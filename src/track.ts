@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { TrackDef, JumpDef, CrossingKind } from './tracks';
+import { ALL_SURFACES } from './tracks';
+import type { TrackDef, JumpDef, CrossingKind, SurfaceOptions } from './tracks';
 import { mulberry32, smoothstep, wrapAngle } from './util';
 
 /** Distance between centerline samples, in metres (approximate). */
@@ -111,7 +112,10 @@ export class Track {
   /** Distance from the start line to the finish, all laps included. */
   readonly raceLength: number;
 
-  constructor(readonly def: TrackDef) {
+  constructor(
+    readonly def: TrackDef,
+    readonly surfaces: SurfaceOptions = ALL_SURFACES,
+  ) {
     const pts = def.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(pts, def.closed, 'centripetal');
     curve.arcLengthDivisions = 4000;
@@ -376,6 +380,12 @@ export class Track {
       if (type === ICE && bend > 0.0035) {
         for (let i = Math.max(0, a - 28); i <= b; i++) this.caution[i] = Math.min(this.caution[i], 29);
       }
+      // Kinds the player has switched off are simply left as snow.
+      const allowed = type === ICE ? this.surfaces.ice : type === GRASS ? this.surfaces.grass : this.surfaces.stone;
+      if (!allowed) {
+        made++;
+        continue;
+      }
       // Half-width patches leave a line round them, if the course is wide enough to offer one.
       const roomy = this.hw[(a + b) >> 1] >= 7;
       const sidePick = rnd();
@@ -388,6 +398,39 @@ export class Track {
       }
       taken.push([s0, s1]);
       made++;
+    }
+
+    // Every track gets at least one sheet of ice. If none survived, lay one on the straightest free stretch.
+    if (this.surfaces.ice && !this.surface.includes(ICE)) {
+      const span = Math.round(42 / this.ds);
+      let best = -1;
+      let bestBend = Infinity;
+      for (let a = Math.round(from / this.ds); a + span < to / this.ds; a += 3) {
+        const s0 = a * this.ds;
+        const s1 = (a + span) * this.ds;
+        if (taken.some(([p, q]) => s0 < q + 12 && s1 > p - 12)) continue;
+        if (this.ramps.some((j) => s1 > j.at * len - 110 && s0 < j.at * len + 90)) continue;
+        let bend = 0;
+        let clear = true;
+        for (let i = a; i <= a + span && clear; i++) {
+          bend = Math.max(bend, Math.abs(this.curv[i]));
+          if (this.walled[i] || this.asphalt[i]) clear = false;
+        }
+        if (clear && bend < bestBend) {
+          bestBend = bend;
+          best = a;
+        }
+      }
+      if (best >= 0) {
+        for (let i = best; i <= best + span; i++) {
+          this.surface[i] = ICE;
+          this.surfSide[i] = 0;
+          this.surfFade[i] = smoothstep(0, 7, Math.min(i - best, best + span - i) * this.ds);
+        }
+        if (bestBend > 0.0035) {
+          for (let i = Math.max(0, best - 28); i <= best + span; i++) this.caution[i] = Math.min(this.caution[i], 29);
+        }
+      }
     }
   }
 

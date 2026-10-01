@@ -1021,6 +1021,15 @@ export const TRACKS: TrackDef[] = [
     theme: GLACIER,
   },
 ];
+/** Which kinds of surface patch are laid on the snow road. Stone covers shale and bare rock. */
+export interface SurfaceOptions {
+  ice: boolean;
+  stone: boolean;
+  grass: boolean;
+}
+
+export const ALL_SURFACES: SurfaceOptions = { ice: true, stone: true, grass: true };
+
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
 export interface DifficultyDef {

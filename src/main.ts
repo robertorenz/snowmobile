@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { TRACKS, Difficulty } from './tracks';
+import { TRACKS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
 import { World } from './world';
 import { Race, NetRace, RACERS, AI_NAMES, RIDER_COLORS } from './race';
 import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
@@ -42,6 +42,16 @@ class Game {
   private focus = new THREE.Vector3();
   private headlight: THREE.SpotLight | null = null;
 
+  private mirrorCam = new THREE.PerspectiveCamera(52, 3.6, 0.3, 9000);
+  private mirrorTarget = new THREE.WebGLRenderTarget(512, 142);
+  private hudScene = new THREE.Scene();
+  private hudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
+  /** Flipped left-to-right (negative X scale), so it reads as a mirror rather than a rear camera. */
+  private mirrorQuad = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: this.mirrorTarget.texture, side: THREE.DoubleSide, depthTest: false, fog: false }),
+  );
+
   private net: NetSession | null = null;
   private netTimer = 0;
   private standingsTimer = 0;
@@ -79,8 +89,20 @@ class Game {
       onQuit: () => void this.toMenu(),
       onNext: () => void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1)),
       onToggleMute: () => this.toggleMute(),
+      onSetting: (key, on) => {
+        if (key === 'sound') {
+          if (on === this.save.muted) this.toggleMute();
+          return;
+        }
+        if (key === 'mirror') this.save.mirror = on;
+        else this.save.surfaces[key] = on;
+        writeSave(this.save);
+        // A surface change means a different road: rebuild the one behind the menu.
+        if (key !== 'mirror' && this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
+      },
     });
 
+    this.hudScene.add(this.mirrorQuad);
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('pointerdown', () => this.audio.start());
     window.addEventListener('keydown', () => this.audio.start());
@@ -104,7 +126,21 @@ class Game {
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     // Keep menus and HUD readable on very large displays.
-    document.getElementById('ui')!.style.zoom = String(clamp(Math.min(w / 1500, h / 800), 1, 2.2));
+    const zoom = clamp(Math.min(w / 1500, h / 800), 1, 2.2);
+    document.getElementById('ui')!.style.zoom = String(zoom);
+
+    // Rear-view mirror: a strip at the top centre, drawn by the renderer and framed by the HUD.
+    const mw = clamp(w * 0.24, 250, 580);
+    const mh = mw / 3.6;
+    const my = 12 * zoom;
+    this.mirrorQuad.scale.set(-mw, mh, 1);
+    this.mirrorQuad.position.set(w / 2, h - my - mh / 2, 0);
+    this.hudCam.right = w;
+    this.hudCam.top = h;
+    this.hudCam.updateProjectionMatrix();
+    const dpr = this.renderer.getPixelRatio();
+    this.mirrorTarget.setSize(Math.round(mw * dpr), Math.round(mh * dpr));
+    this.ui.placeMirror(mw / zoom, mh / zoom, my / zoom);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -116,11 +152,19 @@ class Game {
   }
 
   /** Builds (or reuses) a track's world and puts a fresh grid of racers on it. */
-  private async load(index: number, attract: boolean, difficulty = this.save.difficulty, net: NetRace | null = null) {
+  private async load(
+    index: number,
+    attract: boolean,
+    difficulty = this.save.difficulty,
+    net: NetRace | null = null,
+    surfaces: SurfaceOptions = this.save.surfaces,
+  ) {
     if (this.busy) return;
     this.busy = true;
     const def = TRACKS[index];
-    const rebuild = !this.world || this.world.def !== def;
+    const s = this.world?.surfaces;
+    const sameRoad = !!s && s.ice === surfaces.ice && s.stone === surfaces.stone && s.grass === surfaces.grass;
+    const rebuild = !this.world || this.world.def !== def || !sameRoad;
     try {
       if (rebuild) {
         this.ui.showLoading(true);
@@ -131,7 +175,7 @@ class Game {
       this.race = null;
       if (rebuild) {
         this.world?.dispose();
-        this.world = new World(def);
+        this.world = new World(def, { ...surfaces });
       }
       const world = this.world!;
       this.trackIndex = index;
@@ -277,7 +321,7 @@ class Game {
       grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k] });
     }
     humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i] }));
-    const msg: StartMsg = { t: 'start', track: this.ui.selectedTrack, difficulty: this.save.difficulty, grid };
+    const msg: StartMsg = { t: 'start', track: this.ui.selectedTrack, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces } };
     net.hostStart(msg);
     void this.startOnline(msg);
   }
@@ -289,7 +333,7 @@ class Game {
     await this.whenIdle();
     this.ui.closeModal();
     this.ui.showMenu(false);
-    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost });
+    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost }, msg.surfaces ?? ALL_SURFACES);
     this.mode = 'race';
     this.paused = false;
     this.netTimer = 0;
@@ -310,6 +354,10 @@ class Game {
       return;
     }
 
+    if (this.input.consume('KeyV')) {
+      this.save.mirror = !this.save.mirror;
+      writeSave(this.save);
+    }
     if (this.input.consume('KeyM')) {
       this.toggleMute();
       if (this.mode === 'menu') this.ui.renderMenu();
@@ -367,6 +415,30 @@ class Game {
     world.update(this.paused ? 0 : dt, this.camera, this.focus.copy(target.pos));
     if (this.mode === 'race' && player) this.ui.updateHud(this.hudState(race, player));
     this.renderer.render(world.scene, this.camera);
+    const mirror = this.mode === 'race' && !!player && this.save.mirror;
+    this.ui.showMirror(mirror);
+    if (mirror && player) this.renderMirror(world, player);
+  }
+
+  /** Draws what's behind the sled into the mirror strip. */
+  private renderMirror(world: World, sled: Sled) {
+    const r = this.renderer;
+    const mc = this.mirrorCam;
+    const fx = Math.sin(sled.yaw);
+    const fz = Math.cos(sled.yaw);
+    // Looking back from the tail, so the rider's own sled isn't in the way.
+    mc.position.set(sled.pos.x - fx * 1.7, sled.pos.y + 1.5, sled.pos.z - fz * 1.7);
+    mc.lookAt(sled.pos.x - fx * 30, sled.pos.y + 0.4, sled.pos.z - fz * 30);
+    // The shadows were just drawn for the main view; no need to do them again.
+    r.shadowMap.autoUpdate = false;
+    r.setRenderTarget(this.mirrorTarget);
+    r.render(world.scene, mc);
+    r.setRenderTarget(null);
+    r.shadowMap.autoUpdate = true;
+    r.autoClear = false;
+    r.clearDepth();
+    r.render(this.hudScene, this.hudCam);
+    r.autoClear = true;
   }
 
   private handleEvents(race: Race) {

@@ -38,7 +38,14 @@ Then open http://localhost:5173. `npm run build` produces a static site in `dist
 | `Shift` / `Space` | Boost (recharges slowly, faster in the air) |
 | `R` | Reset onto the track |
 | `Esc` / `P` | Pause |
+| `V` | Rear-view mirror on / off |
 | `M` | Mute |
+
+A rear-view mirror at the top of the screen shows who is behind you.
+
+![The rear-view mirror, with a grass patch and an ice boulder ahead](docs/screenshots/mirror.jpg)
+
+**Settings** (on the menu) has switches for the mirror, sound, and which surface patches appear on the road: ice, rock and shale, and grass can each be turned off.
 
 A gamepad also works: left stick steers, triggers are throttle and brake, A boosts, Start pauses.
 
@@ -77,7 +84,7 @@ The snow road is broken up by patches of other ground, roughly one every 240 m o
 
 | Surface | Looks like | What it does |
 |---|---|---|
-| Ice | Blue, glossy | Next to no grip: the sled slides wherever it was already going, and throttle and brakes work at 40%. Ice is only laid on straights and gentle bends |
+| Ice | Blue, glossy | Next to no grip: the sled slides wherever it was already going, and throttle and brakes work at 40%. Ice is only laid on straights and gentle bends, and every track has at least one sheet |
 | Shale | Dark gravel with loose stones | Top speed down about a quarter, and it rattles the suspension |
 | Bare rock | Grey slabs with cracks | The slowest: top speed down 40% |
 | Grass | Matted turf with clumps of grass blades | Top speed down about 15% |

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Track, GATE_HEIGHT, GRASS, ROCK, SHALE, ICE } from './track';
 import { Terrain, RIVER_DEPTH, RIVER_WATER, CHASM_DEPTH } from './terrain';
-import type { TrackDef, Theme } from './tracks';
+import { ALL_SURFACES } from './tracks';
+import type { TrackDef, Theme, SurfaceOptions } from './tracks';
 import { mulberry32 } from './util';
 import { makeNoise } from './noise';
 import { Ambient } from './ambient';
@@ -155,9 +156,12 @@ export class World {
   readonly vehicles: Vehicle[] = [];
   private ambient!: Ambient;
 
-  constructor(readonly def: TrackDef) {
+  constructor(
+    readonly def: TrackDef,
+    readonly surfaces: SurfaceOptions = ALL_SURFACES,
+  ) {
     const theme = (this.theme = def.theme);
-    this.track = new Track(def);
+    this.track = new Track(def, surfaces);
     this.terrain = new Terrain(this.track);
     for (let i = 0; i < this.track.n; i++) {
       // Lake ice and full-width ice patches both count as ice for the AI's cornering.

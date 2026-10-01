@@ -1011,3 +1011,65 @@ kbd {
 .track-list {
   gap: 5px;
 }
+
+/* Frame for the rear-view mirror; the picture itself is drawn by the renderer underneath. */
+.hud > .mirror {
+  border: 3px solid rgba(10, 24, 38, 0.92);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(160, 200, 230, 0.35),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- Settings ---------- */
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.setting-name {
+  font-size: 15.5px;
+  font-weight: 700;
+}
+.setting-note {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.switch {
+  flex: none;
+  width: 50px;
+  height: 28px;
+  padding: 3px;
+  border: 1px solid rgba(160, 200, 230, 0.3);
+  border-radius: 999px;
+  background: var(--navy-950);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.switch span {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition:
+    transform 0.15s,
+    background 0.15s;
+}
+.switch.on {
+  background: var(--ice-strong);
+  border-color: var(--ice-strong);
+}
+.switch.on span {
+  background: #fff;
+  transform: translateX(22px);
+}
+.switch:focus-visible {
+  outline: 2px solid var(--ice);
+  outline-offset: 2px;
+}

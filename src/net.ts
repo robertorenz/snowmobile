@@ -1,5 +1,5 @@
 import { Peer, DataConnection } from 'peerjs';
-import type { Difficulty } from './tracks';
+import type { Difficulty, SurfaceOptions } from './tracks';
 import type { SledNet } from './sled';
 
 /**
@@ -41,6 +41,8 @@ export interface StartMsg {
   difficulty: Difficulty;
   /** Index is the grid slot, front to back. */
   grid: GridEntry[];
+  /** The host's surface settings, so everyone races the same road. */
+  surfaces: SurfaceOptions;
 }
 
 type Msg =

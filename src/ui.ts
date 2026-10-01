@@ -13,10 +13,14 @@ export interface UICallbacks {
   onQuit(): void;
   onNext(): void;
   onToggleMute(): void;
+  /** A switch in the settings dialog was flipped. */
+  onSetting(key: SettingKey, on: boolean): void;
   /** Create or join an online room. Rejects with a message to show the player. */
   onOnline(action: 'host' | 'join', name: string, code: string): Promise<void>;
   onLeaveRoom(): void;
 }
+
+export type SettingKey = 'ice' | 'stone' | 'grass' | 'mirror' | 'sound';
 
 /** The online room this player is in, as shown on the menu. */
 export interface RoomView {
@@ -251,7 +255,7 @@ export class UI {
         <div class="track-list">${cards}</div>
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
-          <button class="btn ghost" data-act="mute">${save.muted ? 'Sound: Off' : 'Sound: On'}</button>
+          <button class="btn ghost" data-act="settings">Settings</button>
         </div>
       </div>
       <div class="menu-blurb">
@@ -289,10 +293,7 @@ export class UI {
     );
     this.menu.querySelector('[data-act="start"]')?.addEventListener('click', () => this.cb.onStart());
     this.menu.querySelector('[data-act="help"]')!.addEventListener('click', () => this.showHelp());
-    this.menu.querySelector('[data-act="mute"]')!.addEventListener('click', () => {
-      this.cb.onToggleMute();
-      this.renderMenu();
-    });
+    this.menu.querySelector('[data-act="settings"]')!.addEventListener('click', () => this.showSettings());
   }
 
   get selectedTrack() {
@@ -320,7 +321,8 @@ export class UI {
         <div class="place"><span data-ref="place">1st</span><small data-ref="total">/ 6</small></div>
         <div class="lap"><span data-ref="lapLabel">LAP</span><b data-ref="lapValue">1/3</b></div>
       </div>
-      <div class="hud-tc"><div class="timer" data-ref="time">0:00.00</div></div>
+      <div class="mirror hidden" data-ref="mirror"></div>
+      <div class="hud-tc" data-ref="tc"><div class="timer" data-ref="time">0:00.00</div></div>
       <div class="hud-tr"><canvas class="minimap" width="360" height="360"></canvas></div>
       <div class="hud-br">
         <div class="speed"><span data-ref="speed">0</span><small>km/h</small></div>
@@ -330,6 +332,25 @@ export class UI {
       <div class="hud-hint" data-ref="hint"></div>`;
     this.hud.querySelectorAll<HTMLElement>('[data-ref]').forEach((n) => (this.refs[n.dataset.ref!] = n));
     this.mapCanvas = this.hud.querySelector('.minimap')!;
+  }
+
+  /** Sizes the mirror's frame to match the strip the renderer draws (HUD pixels), and tucks the timer under it. */
+  placeMirror(width: number, height: number, top: number) {
+    const m = this.refs.mirror;
+    m.style.width = width + 'px';
+    m.style.height = height + 'px';
+    m.style.top = top + 'px';
+    m.style.left = `calc(50% - ${width / 2}px)`;
+    this.mirrorBottom = top + height + 6;
+  }
+
+  private mirrorBottom = 0;
+
+  showMirror(show: boolean) {
+    const m = this.refs.mirror;
+    if (m.classList.contains('hidden') !== show) return;
+    m.classList.toggle('hidden', !show);
+    this.refs.tc.style.top = show ? this.mirrorBottom + 'px' : '';
   }
 
   showHud(show: boolean, def?: TrackDef) {
@@ -414,6 +435,44 @@ export class UI {
     });
   }
 
+  showSettings() {
+    const save = this.save;
+    const rows: [SettingKey, string, string, boolean][] = [
+      ['ice', 'Ice patches', 'Slippery sheets of ice on the road', save.surfaces.ice],
+      ['stone', 'Rock and shale patches', 'Bare rock and gravel that slow the sled', save.surfaces.stone],
+      ['grass', 'Grass patches', 'Grass showing through the snow', save.surfaces.grass],
+      ['mirror', 'Rear-view mirror', 'Shown at the top of the screen while racing (V)', save.mirror],
+      ['sound', 'Sound', 'Engine, wind and effects (M)', !save.muted],
+    ];
+    const m = this.openModal(
+      `
+      <h2>Settings</h2>
+      <p class="modal-lead">Road surface changes apply from the next race. In an online room the host's road settings are used for everyone.</p>
+      <div class="settings">
+        ${rows
+          .map(
+            ([key, label, note, on]) => `
+          <div class="setting">
+            <div><div class="setting-name">${label}</div><div class="setting-note">${note}</div></div>
+            <button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}" aria-label="${label}" data-key="${key}"><span></span></button>
+          </div>`,
+          )
+          .join('')}
+      </div>
+      <div class="modal-actions"><button class="btn primary" data-act="close">Done</button></div>`,
+      true,
+    );
+    m.querySelectorAll<HTMLButtonElement>('.switch').forEach((b) =>
+      b.addEventListener('click', () => {
+        const on = !b.classList.contains('on');
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+        this.cb.onSetting(b.dataset.key as SettingKey, on);
+      }),
+    );
+    this.bind(m, { close: () => this.closeModal() });
+  }
+
   /** Create-or-join dialog for online play. */
   showOnline(prefillCode = '') {
     const m = this.openModal(
@@ -489,6 +548,7 @@ export class UI {
         <tr><td><kbd>Shift</kbd> / <kbd>Space</kbd></td><td>Boost — recharges slowly, faster in the air</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset onto the track</td></tr>
         <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
+        <tr><td><kbd>V</kbd></td><td>Rear-view mirror on / off</td></tr>
         <tr><td><kbd>M</kbd></td><td>Mute</td></tr>
       </table>
       <p class="modal-note">Stay between the blue (left) and red (right) lines — deep powder off the groomed track slows you down. Brake before tight corners. A gamepad works too: stick to steer, triggers for throttle and brake, A to boost.</p>

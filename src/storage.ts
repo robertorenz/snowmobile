@@ -1,4 +1,5 @@
-import type { Difficulty } from './tracks';
+import { ALL_SURFACES } from './tracks';
+import type { Difficulty, SurfaceOptions } from './tracks';
 
 const KEY = 'powder-rush-save-v1';
 
@@ -13,13 +14,17 @@ export interface SaveData {
   difficulty: Difficulty;
   lastTrack: number;
   muted: boolean;
+  /** Rear-view mirror shown while racing. */
+  mirror: boolean;
+  /** Which surface patches appear on the tracks. */
+  surfaces: SurfaceOptions;
   /** Name shown to other players online. */
   playerName: string;
   /** Keyed by `${trackId}:${difficulty}`. */
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {
@@ -28,7 +33,7 @@ export function loadSave(): SaveData {
   } catch {
     // Storage unavailable or corrupt: start fresh.
   }
-  return { ...DEFAULTS, results: {} };
+  return { ...DEFAULTS, surfaces: { ...ALL_SURFACES }, results: {} };
 }
 
 export function writeSave(save: SaveData) {
