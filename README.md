@@ -170,12 +170,14 @@ Most of this is there to look at; the deer and the avalanche are the exceptions.
 
 ### Trees
 
-The forest is a mix of seven species, each with its own shape: spruce, Douglas fir (the tallest), white pine (a long bare trunk under level whorls), young fir, tamarack, elm and birch. Tamarack, elm and birch stand bare with snow on their limbs on the winter tracks and are in leaf on the two meadow tracks.
+The forest is a mix of eleven kinds of tree, each with its own shape: spruce, Douglas fir (the tallest), white pine (a long bare trunk under level whorls), young fir, cedar (a narrow column), tamarack, elm, birch, maple, aspen, and the odd dead snag. The trees that shed (tamarack, elm, birch, maple, aspen) stand bare with snow on their limbs on the winter tracks and are in leaf on the two meadow tracks.
+
+Under them is undergrowth, thickest along the edge of the course: bushes (some with red berries), stumps and fallen trunks. You can ride through all of it; only the trees themselves are solid.
 
 | | |
 |---|---|
 | ![Winter forest](docs/screenshots/trees-winter.jpg) | ![Meadow forest](docs/screenshots/trees-meadow.jpg) |
-| Winter: conifers under snow, bare elm, tamarack and birch | Meadow: the same species in leaf |
+| Winter: conifers under snow, bare broadleaf trees | Meadow: the same species in leaf, with berry bushes |
 
 ### Plunges
 
