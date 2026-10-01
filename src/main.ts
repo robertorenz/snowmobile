@@ -1032,10 +1032,10 @@ class Game {
       const fz = Math.cos(this.camYaw);
       const ratio = clamp(sled.speed / SLED.maxSpeed, 0, 1.3);
       // Climb with speed, so there is more road in view the faster you go.
-      const height = 36 + ratio * 16;
+      const height = 29 + ratio * 14;
       const y = this.camSnap ? sled.pos.y + height : lerp(cam.position.y, sled.pos.y + height, 1 - Math.exp(-3 * dt));
       // Sit a little behind the sled, so most of the screen shows what's coming.
-      const lead = 9 + ratio * 9;
+      const lead = 7 + ratio * 8;
       cam.position.set(sled.pos.x + fx * (lead - 4), y, sled.pos.z + fz * (lead - 4));
       cam.up.set(fx, 0, fz);
       cam.lookAt(sled.pos.x + fx * lead, sled.pos.y, sled.pos.z + fz * lead);
