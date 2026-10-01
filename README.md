@@ -55,6 +55,7 @@ Then open http://localhost:5173. `npm run build` produces a static site in `dist
 | Boost | Amber canister | Refills the boost meter |
 | Shield | Blue crystal | Soaks up the next snowball or crash |
 | Snowball | White ball | Carry one and throw it down the road; a hit knocks a rider back to about half speed |
+| Repair | Green box | Mends all damage (riders with none leave it for someone else) |
 
 AI riders collect and use them too.
 
@@ -64,7 +65,26 @@ A rear-view mirror at the top of the screen shows who is behind you.
 
 **Settings** (on the menu) has switches for the mirror, sound, and which surface patches appear on the road: ice, rock and shale, and grass can each be turned off.
 
+On a phone or tablet, on-screen buttons appear the first time you touch the screen. There is a synthesised soundtrack; switch it off in Settings.
+
 A gamepad also works: left stick steers, triggers are throttle and brake, A boosts, Start pauses.
+
+## Ways to play
+
+The menu's **Mode** switch chooses what the Race button starts.
+
+| Mode | What it is |
+|---|---|
+| Race | You and five AI riders; top 3 unlocks the next level |
+| Time trial | Alone against the clock. Each track has gold, silver and bronze times, and your best run comes back as a see-through ghost to race against |
+| Knockout | Every so often the rider in last place is eliminated. Last one standing wins |
+| Cup | A championship of four races scored on points (10, 7, 5, 3, 2, 1). There are four cups; each needs all its tracks unlocked |
+
+**Coins and paint:** solo races, time-trial medals and cups pay coins. Spend them on paint for your sled in the snowmobile picker.
+
+**Damage:** a hard smash takes a little off your top speed, and it adds up. A green repair box fixes the sled.
+
+**Photo mode:** pause a solo race and choose Photo mode to swing the camera round the sled and save a picture.
 
 ## Snowmobiles
 
@@ -128,8 +148,14 @@ AI riders slow for bends on ice and move to the clear half of the road when a sl
 
 ### Life around the course
 
-None of this affects the race; it is there to look at.
+Most of this is there to look at; the deer and the avalanche are the exceptions.
 
+![Spectators at the start line on Pine Meadow](docs/screenshots/crowd.jpg)
+
+- **Deer:** a few wander across the road on every track. Hit one and you're knocked back; it bolts.
+- **Crowd and cabins:** spectators cheer at the start line, and log cabins with lit windows sit in the hills.
+- **Weather:** every few minutes the fog closes in and the snow thickens, then it clears again.
+- **Avalanche:** on Glacier Run, Whiteout Summit and Widowmaker, an avalanche breaks loose behind the leaders partway down and chases the field at about 145 km/h. Anyone it catches is buried and restarts from a standstill.
 - **Steam train:** every track has a railway along the mountainside beside the course, with a locomotive pulling a tender and five carriages, smoke trailing from the chimney. It runs out of one rock tunnel and into another, then comes round again.
 - **Sky:** drifting clouds, flocks of birds circling in V formation, three hot-air balloons, and an airliner with a contrail crossing about once a minute. At night there are no birds or balloons and the airliner shows a blinking beacon; in the blizzard only the train runs.
 
@@ -184,6 +210,8 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 - The room exists only while the host keeps the game open, and the host's tab must stay visible (browsers pause hidden tabs).
 - An online race cannot be paused. When the host leaves a race, it ends for everyone.
 - Some strict corporate or mobile networks block direct connections; joining will then time out.
+
+The room has a chat box, and each player's chosen snowmobile is shown to everyone. Snowball hits carry across the network.
 
 ## How it is put together
 

@@ -10,7 +10,7 @@ import { mulberry32 } from './util';
  */
 export class Ambient {
   /** Deer on or near the road: where they are, and a way to scare them off. */
-  readonly animals: { x: number; z: number; onRoad: boolean; scare: () => void }[] = [];
+  readonly animals: { x: number; z: number; onRoad: boolean; cool: number; scare: () => void }[] = [];
   private time = 0;
   private updaters: ((dt: number, t: number) => void)[] = [];
   private rnd: () => number;
@@ -104,6 +104,8 @@ export class Ambient {
         x: 0,
         z: 0,
         onRoad: false,
+        // Seconds before it can be hit again: one collision per encounter.
+        cool: 0,
         scare: () => {
           // Bolt for whichever side is nearer.
           dir = lat >= 0 ? 1 : -1;
@@ -112,6 +114,7 @@ export class Ambient {
       };
       this.animals.push(animal);
       this.updaters.push((dt, t) => {
+        animal.cool = Math.max(0, animal.cool - dt);
         if (dir === 0) {
           wait -= dt;
           if (wait <= 0) {

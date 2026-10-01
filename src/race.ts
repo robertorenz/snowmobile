@@ -339,19 +339,21 @@ export class Race {
     // Damage: each hard knock takes a little off the sled's top speed until it's repaired.
     for (const s of this.sleds) {
       if (s.remote || s.gone) continue;
-      if (s.impact > 6) {
-        if (!s.hurt) s.damage = Math.min(1, s.damage + 0.05 + (s.impact - 6) * 0.018);
+      // Only a real smash counts: ordinary landings and snowball hits don't.
+      if (s.impact > 10) {
+        if (!s.hurt) s.damage = Math.min(1, s.damage + 0.04 + (s.impact - 10) * 0.01);
         s.hurt = true;
       } else s.hurt = false;
     }
 
     // Deer: run into one and you're knocked back; it bolts.
     for (const a of world.animals) {
-      if (!a.onRoad) continue;
+      if (!a.onRoad || a.cool > 0) continue;
       for (const s of this.sleds) {
         if (s.remote || s.gone || Math.hypot(s.pos.x - a.x, s.pos.z - a.z) > 1.7) continue;
         s.struck();
         a.scare();
+        a.cool = 4;
         if (s === p) this.events.push('struck');
       }
     }
@@ -376,7 +378,7 @@ export class Race {
     }
     const slide = this.avalanche;
     if (slide) {
-      slide.front += 37 * dt;
+      slide.front += 40 * dt;
       for (const lump of slide.mesh.children) {
         const i = track.wrap(Math.round((slide.front - lump.userData.back) / track.ds));
         const x = track.px[i] + track.lx[i] * lump.userData.lat;
