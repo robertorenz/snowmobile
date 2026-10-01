@@ -71,6 +71,21 @@ Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to
 
 The ground beside each course is broken by rock ridges and clusters of outcrops (snow-capped in winter), and most tracks have a waterfall or two. Outcrops and waterfalls close to the course are solid. The circuits also climb and drop far more than their layouts suggest: Frostbite Ridge rises about 110 m and Switchback Pass about 190 m, with single hills of up to 25 m on top of that. Slopes pull hard: a steep climb can drag a sled down to 60 km/h, and the descents push it past its normal top speed.
 
+### Surfaces
+
+The snow road is broken up by patches of other ground, roughly one every 240 m on every track. Some cover the full width; others cover one half, leaving a clean line round them.
+
+| Surface | Looks like | What it does |
+|---|---|---|
+| Ice | Blue, glossy | Almost no grip: the sled keeps its speed but slides, as on Mirror Lake |
+| Shale | Dark gravel with loose stones | Top speed down about a quarter, and it rattles the suspension |
+| Bare rock | Grey slabs with cracks | The slowest: top speed down 40% |
+| Grass | Green tufts through the snow | Top speed down about 15% |
+
+AI riders slow for bends on ice and move to the clear half of the road when a slow patch covers only one side.
+
+![A half-width patch of shale on Pine Meadow](docs/screenshots/surfaces.jpg)
+
 ### Life around the course
 
 None of this affects the race; it is there to look at.

@@ -2,6 +2,7 @@ import { Sled, SLED } from './sled';
 import type { World } from './world';
 import type { DifficultyDef } from './tracks';
 import { clamp, wrapAngle } from './util';
+import { ICE } from './track';
 
 /**
  * Drives a sled around the course: steers at a point ahead on its chosen
@@ -55,6 +56,9 @@ export class AIDriver {
         want += s.lateral >= o.lateral ? 3.5 : -3.5;
       }
     }
+    // A patch of slow ground on one half of the course: take the other half.
+    const slow = track.surface[ti];
+    if (slow > ICE && track.surfSide[ti] !== 0) want = -track.surfSide[ti] * hw * 0.5;
     want = clamp(want, -(hw - 2.5), hw - 2.5);
 
     // Obstacles: if the line runs into one, pass on the side with more room.
@@ -95,7 +99,7 @@ export class AIDriver {
     for (let k = 0; k <= scanN; k += 2) {
       // Ice has a fraction of the grip, so treat bends on it as far tighter.
       const j = track.wrap(s.idx + k);
-      const c = Math.abs(track.curv[j]) * (track.ice[j] ? 3.5 : 1);
+      const c = Math.abs(track.curv[j]) * (track.ice[j] || track.surface[j] === ICE ? 3.5 : 1);
       if (c > kMax) kMax = c;
       if (k * track.ds < 45 && track.caution[j] < caution) caution = track.caution[j];
     }

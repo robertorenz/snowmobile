@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildSledModel, poseSledModel, SledModel } from './sledModel';
 import type { World } from './world';
 import { clamp, lerp, wrapAngle } from './util';
-import { GATE_HEIGHT } from './track';
+import { GATE_HEIGHT, ICE, SHALE, ROCK, GRASS } from './track';
 
 /** A sled's state as sent between computers in an online race. */
 export interface SledNet {
@@ -238,9 +238,13 @@ export class Sled {
 
     if (this.grounded) {
       // Lake ice is slippery but open: no deep snow to bog down in.
-      const onIce = terrain.iceAt(pos.x, pos.z) > 0.5;
-      this.offTrack = !onIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
-      const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : 1);
+      const patch = track.surfaceAt(this.idx, this.lateral);
+      const lakeIce = terrain.iceAt(pos.x, pos.z) > 0.5;
+      const onIce = lakeIce || patch === ICE;
+      this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
+      // Loose stone, bare rock and grass all hold a sled back; rock most of all.
+      const rough = patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1;
+      const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : rough);
       const acc = P.accel * (this.boosting ? P.boostAccel : 1);
 
       if (inp.throttle > 0) vf += inp.throttle * acc * (1 - vf / cap) * dt;
@@ -250,6 +254,11 @@ export class Sled {
       }
       // Deep snow off the groomed surface drags hard.
       vf -= vf * (this.offTrack ? 0.9 : 0.1) * dt;
+      if (rough < 1 && !this.offTrack) {
+        vf -= vf * (1 - rough) * 2.4 * dt;
+        // Stone rattles the sled.
+        if (patch !== GRASS) this.rattle = Math.min(1, Math.abs(vf) / 25);
+      }
       // Skis and track grind on a highway's tarmac.
       if (track.asphalt[this.idx]) vf -= vf * 2.6 * dt;
       if (inp.throttle <= 0 && inp.brake <= 0) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 2.5 * dt);
@@ -406,6 +415,10 @@ export class Sled {
     if (dt > 0) {
       // Body on its springs: bumps and landings push it down, then it settles.
       const ay = clamp((this.vel.y - this.lastVy) / dt, -120, 120);
+      if (this.rattle > 0) {
+        this.heaveV += (Math.random() - 0.5) * 9 * this.rattle;
+        this.rattle = 0;
+      }
       this.lastVy = this.vel.y;
       const rest = this.grounded ? 0 : 0.07;
       this.heaveV += (-(this.heave - rest) * 220 - this.heaveV * 17 - (this.grounded ? ay * 0.55 : 0)) * dt;
@@ -438,6 +451,8 @@ export class Sled {
     poseSledModel(this.model, this.heave, this.skiTravel[0], this.skiTravel[1], inp.steer, this.lean, this.pitch);
   }
 
+  /** 0..1 while riding over stone: shakes the suspension. */
+  private rattle = 0;
   private heave = 0;
   private heaveV = 0;
   private lastVy = 0;

@@ -32,6 +32,13 @@ export interface Crossing {
   y: number;
 }
 
+/** What the racing surface is made of. Everything but snow changes how the sled behaves. */
+export const SNOW = 0;
+export const ICE = 1;
+export const SHALE = 2;
+export const ROCK = 3;
+export const GRASS = 4;
+
 /** Something solid sitting on the racing surface. */
 export interface Obstacle {
   /** Centerline sample it sits beside. */
@@ -62,6 +69,12 @@ export class Track {
   readonly hw: Float32Array;
   readonly obstacles: Obstacle[] = [];
   readonly crossings: Crossing[] = [];
+  /** Surface type at each sample (SNOW, ICE, SHALE, ROCK or GRASS). */
+  readonly surface: Uint8Array;
+  /** Which half of the course a patch covers: 1 left, -1 right, 0 the full width. */
+  readonly surfSide: Int8Array;
+  /** 0..1: how fully a patch has set in at each sample; it fades in and out at its ends. */
+  readonly surfFade: Float32Array;
   /** 1 where the course is carried on a bridge over another part of itself. */
   readonly bridge: Uint8Array;
   /** 1 where the course has solid sides: on bridges and in tunnels. */
@@ -307,6 +320,67 @@ export class Track {
       this.raceLength = (this.finishIdx - this.startIdx) * this.ds;
     }
     this.placeObstacles();
+    this.surface = new Uint8Array(n);
+    this.surfSide = new Int8Array(n);
+    this.surfFade = new Float32Array(n);
+    this.placeSurfaces();
+  }
+
+  /** The surface a sled at sample i, offset sideways by lateral, is riding on. */
+  surfaceAt(i: number, lateral: number) {
+    const s = this.surface[i];
+    if (!s || this.surfFade[i] < 0.35) return SNOW;
+    const side = this.surfSide[i];
+    return side === 0 || lateral * side > 0 ? s : SNOW;
+  }
+
+  /** Lays patches of ice, shale, bare rock and grass along the course: the same every time for a given track. */
+  private placeSurfaces() {
+    const def = this.def;
+    const rnd = mulberry32(def.seed * 977 + 5);
+    const len = this.length;
+    const from = this.startS + 110;
+    const to = (this.closed ? len : this.finishIdx * this.ds) - 110;
+    const want = Math.round(len / 240);
+    const taken: [number, number][] = [];
+    let made = 0;
+    let tries = 0;
+    while (made < want && tries++ < 3000) {
+      const length = 35 + rnd() * 70;
+      const s0 = from + rnd() * (to - from - length);
+      const s1 = s0 + length;
+      if (taken.some(([a, b]) => s0 < b + 25 && s1 > a - 25)) continue;
+      // Keep jumps, crossings, bridges, tunnels and the frozen lake as they are.
+      if (this.ramps.some((j) => s1 > j.at * len - 110 && s0 < j.at * len + 90)) continue;
+      const a = Math.round(s0 / this.ds);
+      const b = Math.min(this.n - 1, Math.round(s1 / this.ds));
+      let clear = true;
+      for (let i = a; i <= b && clear; i++) {
+        if (this.walled[i] || this.asphalt[i]) clear = false;
+        const lake = def.lake;
+        if (lake && Math.hypot((this.px[i] - lake.x) / lake.rx, (this.pz[i] - lake.z) / lake.rz) < 1.15) clear = false;
+      }
+      if (!clear) continue;
+
+      // Thawed ground shows more grass and stone; deep winter, more ice.
+      const pick = rnd();
+      const meadow = !!def.theme.meadow;
+      const type = meadow
+        ? pick < 0.15 ? ICE : pick < 0.45 ? SHALE : pick < 0.65 ? ROCK : GRASS
+        : pick < 0.3 ? ICE : pick < 0.57 ? SHALE : pick < 0.8 ? ROCK : GRASS;
+      // Half-width patches leave a line round them, if the course is wide enough to offer one.
+      const roomy = this.hw[(a + b) >> 1] >= 7;
+      const sidePick = rnd();
+      const side = !roomy || sidePick < (type === ICE ? 0.6 : 0.35) ? 0 : sidePick < 0.7 ? 1 : -1;
+      for (let i = a; i <= b; i++) {
+        this.surface[i] = type;
+        this.surfSide[i] = side;
+        const edge = Math.min(i - a, b - i) * this.ds;
+        this.surfFade[i] = smoothstep(0, 7, edge);
+      }
+      taken.push([s0, s1]);
+      made++;
+    }
   }
 
   /** Scatters obstacles along the course: same places every time, clear of the grid and of jump landings. */

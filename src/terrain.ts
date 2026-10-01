@@ -89,6 +89,8 @@ export class Terrain {
     const dist = new Float32Array(nx * nz);
     const lat = new Float32Array(nx * nz);
     const hwv = new Float32Array(nx * nz);
+    // Per vertex: how much ice, shale, rock and grass the racing surface shows here.
+    const surf = new Float32Array(nx * nz * 4);
     const wet = new Float32Array(nx * nz);
     const ice = new Float32Array(nx * nz);
     const river = def.river;
@@ -203,6 +205,11 @@ export class Terrain {
         dist[idx] = dd;
         lat[idx] = dd * side;
         hwv[idx] = hw;
+        if (bi >= 0 && track.surface[bi] && dd < hw + 3) {
+          const sideOf = track.surfSide[bi];
+          const across = sideOf === 0 ? 1 : smoothstep(-1.2, 1.2, dd * side * sideOf);
+          surf[idx * 4 + track.surface[bi] - 1] = track.surfFade[bi] * across;
+        }
       }
     }
     this.heights = heights;
@@ -265,6 +272,7 @@ export class Terrain {
     geo.setAttribute('lat', new THREE.BufferAttribute(lat, 1));
     geo.setAttribute('trackHW', new THREE.BufferAttribute(hwv, 1));
     geo.setAttribute('ice', new THREE.BufferAttribute(ice, 1));
+    geo.setAttribute('surf', new THREE.BufferAttribute(surf, 4));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
 
@@ -344,7 +352,9 @@ function makeSnowMaterial(track: Track) {
         attribute float lat;
         attribute float trackHW;
         attribute float ice;
+        attribute vec4 surf;
         varying float vIce;
+        varying vec4 vSurf;
         varying float vLat;
         varying float vHW;
         varying vec2 vWXZ;`,
@@ -355,6 +365,7 @@ function makeSnowMaterial(track: Track) {
         vLat = lat;
         vHW = trackHW;
         vIce = ice;
+        vSurf = surf;
         vWXZ = position.xz;`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -365,7 +376,17 @@ function makeSnowMaterial(track: Track) {
         varying vec2 vWXZ;
         varying float vHW;
         varying float vIce;
+        varying vec4 vSurf;
         uniform float uSoft;
+        float hash2(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), f.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), f.x), f.y);
+        }
         uniform vec3 uTrackColor;
         uniform vec3 uEdgeL;
         uniform vec3 uEdgeR;
@@ -392,6 +413,22 @@ function makeSnowMaterial(track: Track) {
           diffuseColor.rgb = mix(diffuseColor.rgb, iceCol, iceAmt);
           vec3 groomed = uTrackColor * (0.97 + 0.03 * sin(vLat * 7.0));
           diffuseColor.rgb = mix(diffuseColor.rgb, groomed, onTrack * (1.0 - 0.75 * iceAmt));
+          // Patches of other ground showing through the snow road.
+          {
+            vec4 s = vSurf * onTrack;
+            vec3 sheet = vec3(0.2, 0.47, 0.74) * (0.9 + 0.1 * vnoise(vWXZ * 0.6));
+            float grit = vnoise(vWXZ * 3.1) * 0.6 + hash2(floor(vWXZ * 6.0)) * 0.4;
+            vec3 shale = mix(vec3(0.2, 0.19, 0.18), vec3(0.43, 0.4, 0.36), grit);
+            float slab = vnoise(vWXZ * 0.45);
+            float crack = smoothstep(0.06, 0.0, abs(fract(slab * 4.0) - 0.5));
+            vec3 stone = mix(vec3(0.36, 0.37, 0.4), vec3(0.52, 0.53, 0.55), vnoise(vWXZ * 1.4)) * (1.0 - 0.45 * crack);
+            float tuft = smoothstep(0.42, 0.62, vnoise(vWXZ * 0.9) * 0.6 + vnoise(vWXZ * 3.7) * 0.4);
+            vec3 turf = mix(vec3(0.24, 0.42, 0.16), vec3(0.4, 0.56, 0.24), vnoise(vWXZ * 5.0));
+            diffuseColor.rgb = mix(diffuseColor.rgb, sheet, s.x);
+            diffuseColor.rgb = mix(diffuseColor.rgb, shale, s.y);
+            diffuseColor.rgb = mix(diffuseColor.rgb, stone, s.z);
+            diffuseColor.rgb = mix(diffuseColor.rgb, turf, s.w * tuft);
+          }
           float edge = smoothstep(vHW - 1.5, vHW - 1.25, d) * (1.0 - smoothstep(vHW - 0.55, vHW - 0.3, d));
           diffuseColor.rgb = mix(diffuseColor.rgb, vLat > 0.0 ? uEdgeL : uEdgeR, edge * 0.85);
           float ca = chequer(uLineA, onTrack);
@@ -403,7 +440,7 @@ function makeSnowMaterial(track: Track) {
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.32, smoothstep(0.35, 0.65, vIce));`,
+        roughnessFactor = mix(roughnessFactor, 0.32, max(smoothstep(0.35, 0.65, vIce), vSurf.x * (1.0 - smoothstep(vHW - 0.4, vHW + 0.4, abs(vLat)))));`,
       );
   };
   return mat;

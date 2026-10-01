@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Track, GATE_HEIGHT } from './track';
+import { Track, GATE_HEIGHT, GRASS, ROCK, SHALE, ICE } from './track';
 import { Terrain, RIVER_DEPTH, RIVER_WATER, CHASM_DEPTH } from './terrain';
 import type { TrackDef, Theme } from './tracks';
 import { mulberry32 } from './util';
@@ -160,7 +160,9 @@ export class World {
     this.track = new Track(def);
     this.terrain = new Terrain(this.track);
     for (let i = 0; i < this.track.n; i++) {
-      this.track.ice[i] = this.terrain.iceAt(this.track.px[i], this.track.pz[i]) > 0.5 ? 1 : 0;
+      // Lake ice and full-width ice patches both count as ice for the AI's cornering.
+      const sheet = this.track.surface[i] === ICE && this.track.surfSide[i] === 0;
+      this.track.ice[i] = sheet || this.terrain.iceAt(this.track.px[i], this.track.pz[i]) > 0.5 ? 1 : 0;
     }
     this.scene.add(this.terrain.mesh);
     this.scene.add(this.spray.points);
@@ -584,6 +586,44 @@ export class World {
         this.colliders.add({ x: o.x, z: o.z, r: o.kind === 'rock' ? o.radius * 0.9 : o.radius });
       }
     }
+
+    // --- Grass tufts and loose stones standing up out of the surface patches (ride straight through them) ---
+    const tufts: THREE.Matrix4[] = [];
+    const stones: THREE.Matrix4[] = [];
+    for (let i = 0; i < track.n; i++) {
+      const type = track.surface[i];
+      if ((type !== GRASS && type !== ROCK && type !== SHALE) || track.surfFade[i] < 0.5) continue;
+      const per = type === GRASS ? 5 : type === ROCK ? 2 : 1;
+      for (let k = 0; k < per; k++) {
+        const side = track.surfSide[i];
+        const reach = track.hw[i] - 0.6;
+        const lat = side === 0 ? (rnd() * 2 - 1) * reach : side * rnd() * reach;
+        const x = track.px[i] + track.lx[i] * lat + track.tx[i] * (rnd() - 0.5) * track.ds;
+        const z = track.pz[i] + track.lz[i] * lat + track.tz[i] * (rnd() - 0.5) * track.ds;
+        q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
+        if (type === GRASS) {
+          const h = 0.25 + rnd() * 0.3;
+          s.set(0.5 + rnd() * 0.5, h / 0.4, 0.5 + rnd() * 0.5);
+          v.set(x, terrain.height(x, z) + h / 2 - 0.03, z);
+          tufts.push(new THREE.Matrix4().compose(v, q, s));
+        } else {
+          const size = type === ROCK ? 0.16 + rnd() * 0.22 : 0.08 + rnd() * 0.1;
+          s.set(size * (1 + rnd()), size * 0.6, size * (1 + rnd()));
+          v.set(x, terrain.height(x, z) + size * 0.1, z);
+          stones.push(new THREE.Matrix4().compose(v, q, s));
+        }
+      }
+    }
+    const litter = (geo: THREE.BufferGeometry, mat: THREE.Material, list: THREE.Matrix4[]) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((mat4, j) => mesh.setMatrixAt(j, mat4));
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+    };
+    litter(new THREE.ConeGeometry(0.16, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x4d7a2c, roughness: 0.9, flatShading: true }), tufts);
+    litter(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x5a5b5e, roughness: 0.95, flatShading: true }), stones);
 
     // --- Waterfalls ---
     for (const w of def.waterfalls ?? []) {
