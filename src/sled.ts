@@ -13,12 +13,12 @@ export interface SledInput {
 
 /** Handling constants shared by every sled (SI units). */
 export const SLED = {
-  maxSpeed: 40,
-  accel: 15,
-  brake: 28,
+  maxSpeed: 52,
+  accel: 21,
+  brake: 34,
   reverseSpeed: 7,
   /** Lateral acceleration available for cornering. */
-  aLat: 26,
+  aLat: 32,
   turnMax: 1.8,
   grip: 6.5,
   radius: 1.15,

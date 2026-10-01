@@ -27,7 +27,6 @@ class Game {
   private paused = false;
   private busy = false;
   private trackIndex = 0;
-  private acc = 0;
   private last = performance.now();
   private finishTimer = 0;
   private resultsShown = false;
@@ -122,7 +121,6 @@ class Game {
       const lit = this.race.player ?? this.race.sleds[0];
       if (world.theme.night) this.headlight = addHeadlight(lit);
       this.camSnap = true;
-      this.acc = 0;
       this.finishTimer = 0;
       this.resultsShown = false;
       this.banner = '';
@@ -195,14 +193,10 @@ class Game {
     if (!this.paused) {
       this.clock += dt;
       const inp = this.mode === 'race' ? this.input.read(dt) : null;
-      this.acc += dt;
-      let steps = 0;
-      while (this.acc >= STEP && steps < 4) {
-        race.step(STEP, inp);
-        this.acc -= STEP;
-        steps++;
-      }
-      if (steps === 4) this.acc = 0;
+      // Simulate exactly up to this frame, in slices no longer than STEP, so
+      // motion stays smooth on high-refresh displays.
+      const steps = Math.max(1, Math.ceil(dt / STEP));
+      for (let i = 0; i < steps; i++) race.step(dt / steps, inp);
       this.handleEvents(race);
       if (race.phase === 'finished' && !this.resultsShown) {
         this.finishTimer += dt;
@@ -344,18 +338,18 @@ class Game {
     if (speed > 6) want += wrapAngle(Math.atan2(sled.vel.x, sled.vel.z) - sled.yaw) * 0.5;
     if (this.camSnap) {
       this.camYaw = want;
-      this.camY = sled.pos.y + 3.1;
+      this.camY = sled.pos.y + 2.8;
     }
     this.camYaw += wrapAngle(want - this.camYaw) * (1 - Math.exp(-6 * dt));
     const ratio = clamp(speed / SLED.maxSpeed, 0, 1.3);
-    const dist = 6.8 + ratio * 1.6;
+    const dist = 6.2 + ratio * 1.2;
     const x = sled.pos.x - Math.sin(this.camYaw) * dist;
     const z = sled.pos.z - Math.cos(this.camYaw) * dist;
-    this.camY = lerp(this.camY, sled.pos.y + 3.1, 1 - Math.exp(-7 * dt));
+    this.camY = lerp(this.camY, sled.pos.y + 2.8, 1 - Math.exp(-7 * dt));
     const y = Math.max(this.camY, world.terrain.height(x, z) + 1.3);
     cam.position.set(x, y, z);
     cam.lookAt(sled.pos.x + Math.sin(this.camYaw) * 6, sled.pos.y + 1.5, sled.pos.z + Math.cos(this.camYaw) * 6);
-    const fov = 62 + ratio * 14 + (sled.boosting ? 5 : 0);
+    const fov = 64 + ratio * 20 + (sled.boosting ? 7 : 0);
     cam.fov = lerp(cam.fov, fov, 1 - Math.exp(-4 * dt));
     cam.updateProjectionMatrix();
     this.camSnap = false;
