@@ -229,7 +229,7 @@ export class Sled {
     else this.boost = Math.min(1, this.boost + (this.grounded ? P.boostRecharge : P.boostRecharge * 5) * dt);
 
     if (this.grounded) {
-      this.offTrack = Math.abs(this.lateral) > track.halfWidth + 0.8;
+      this.offTrack = Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : 1);
       const acc = P.accel * (this.boosting ? P.boostAccel : 1);
 

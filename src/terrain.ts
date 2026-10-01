@@ -23,6 +23,8 @@ export class Terrain {
   readonly heights: Float32Array;
   /** Distance from each grid vertex to the track centerline (capped at FAR). */
   readonly dist: Float32Array;
+  /** Track half-width at the nearest point of the course, per grid vertex. */
+  readonly halfWidths: Float32Array;
   readonly mesh: THREE.Mesh;
   readonly sizeX: number;
   readonly sizeZ: number;
@@ -31,7 +33,6 @@ export class Terrain {
     const def = track.def;
     const theme = def.theme;
     const noise = makeNoise(def.seed);
-    const hw = track.halfWidth;
 
     let minX = Infinity;
     let maxX = -Infinity;
@@ -78,6 +79,7 @@ export class Terrain {
     const heights = new Float32Array(nx * nz);
     const dist = new Float32Array(nx * nz);
     const lat = new Float32Array(nx * nz);
+    const hwv = new Float32Array(nx * nz);
 
     for (let iz = 0; iz < nz; iz++) {
       const z = minZ + iz * cell;
@@ -125,7 +127,9 @@ export class Terrain {
         let dd = FAR;
         let trackH = far;
         let side = 1;
+        let hw = track.halfWidth;
         if (bi >= 0) {
+          hw = track.hw[bi];
           dd = Math.min(FAR, Math.sqrt(best));
           const rx = x - track.px[bi];
           const rz = z - track.pz[bi];
@@ -144,10 +148,12 @@ export class Terrain {
         heights[idx] = trackH * (1 - t) + (far + mountains + bumps) * t;
         dist[idx] = dd;
         lat[idx] = dd * side;
+        hwv[idx] = hw;
       }
     }
     this.heights = heights;
     this.dist = dist;
+    this.halfWidths = hwv;
 
     // Mesh
     const pos = new Float32Array(nx * nz * 3);
@@ -195,6 +201,7 @@ export class Terrain {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('lat', new THREE.BufferAttribute(lat, 1));
+    geo.setAttribute('trackHW', new THREE.BufferAttribute(hwv, 1));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
 
@@ -216,11 +223,12 @@ export class Terrain {
     return a + (b - a) * v;
   }
 
-  /** Distance to the track centerline, from the baked grid. */
-  distAt(x: number, z: number) {
+  /** Distance beyond the edge of the racing surface (negative on the track), from the baked grid. */
+  edgeAt(x: number, z: number) {
     const ix = clamp(Math.round((x - this.minX) / this.cell), 0, this.nx - 1);
     const iz = clamp(Math.round((z - this.minZ) / this.cell), 0, this.nz - 1);
-    return this.dist[iz * this.nx + ix];
+    const i = iz * this.nx + ix;
+    return this.dist[i] - this.halfWidths[i];
   }
 
   normal(x: number, z: number, out: THREE.Vector3) {
@@ -240,7 +248,6 @@ function makeSnowMaterial(track: Track) {
   const theme = track.def.theme;
   const line = (i: number) => new THREE.Vector4(track.px[i], track.pz[i], track.tx[i], track.tz[i]);
   const uniforms = {
-    uHW: { value: track.halfWidth },
     uTrackColor: { value: new THREE.Color(theme.trackTint) },
     uEdgeL: { value: new THREE.Color(0x1d6fd1) },
     uEdgeR: { value: new THREE.Color(0xd8343a) },
@@ -255,13 +262,16 @@ function makeSnowMaterial(track: Track) {
         '#include <common>',
         `#include <common>
         attribute float lat;
+        attribute float trackHW;
         varying float vLat;
+        varying float vHW;
         varying vec2 vWXZ;`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vLat = lat;
+        vHW = trackHW;
         vWXZ = position.xz;`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -270,7 +280,7 @@ function makeSnowMaterial(track: Track) {
         `#include <common>
         varying float vLat;
         varying vec2 vWXZ;
-        uniform float uHW;
+        varying float vHW;
         uniform vec3 uTrackColor;
         uniform vec3 uEdgeL;
         uniform vec3 uEdgeR;
@@ -280,7 +290,7 @@ function makeSnowMaterial(track: Track) {
           vec2 rel = vWXZ - line.xy;
           float al = dot(rel, line.zw);
           float la = dot(rel, vec2(line.w, -line.z));
-          if (abs(al) > 1.8 || abs(la) > uHW + 8.0) return -1.0;
+          if (abs(al) > 1.8 || abs(la) > vHW + 8.0) return -1.0;
           return onTrack > 0.5 ? mod(floor(al / 0.9) + floor(la / 0.9), 2.0) : -1.0;
         }`,
       )
@@ -289,10 +299,10 @@ function makeSnowMaterial(track: Track) {
         `#include <color_fragment>
         {
           float d = abs(vLat);
-          float onTrack = 1.0 - smoothstep(uHW - 0.4, uHW + 0.4, d);
+          float onTrack = 1.0 - smoothstep(vHW - 0.4, vHW + 0.4, d);
           vec3 groomed = uTrackColor * (0.97 + 0.03 * sin(vLat * 7.0));
           diffuseColor.rgb = mix(diffuseColor.rgb, groomed, onTrack);
-          float edge = smoothstep(uHW - 1.5, uHW - 1.25, d) * (1.0 - smoothstep(uHW - 0.55, uHW - 0.3, d));
+          float edge = smoothstep(vHW - 1.5, vHW - 1.25, d) * (1.0 - smoothstep(vHW - 0.55, vHW - 0.3, d));
           diffuseColor.rgb = mix(diffuseColor.rgb, vLat > 0.0 ? uEdgeL : uEdgeR, edge * 0.85);
           float ca = chequer(uLineA, onTrack);
           float cb = chequer(uLineB, onTrack);

@@ -1,11 +1,23 @@
 import * as THREE from 'three';
 import type { TrackDef } from './tracks';
-import { wrapAngle } from './util';
+import { mulberry32, smoothstep, wrapAngle } from './util';
 
 /** Distance between centerline samples, in metres (approximate). */
 const SAMPLE_SPACING = 2;
 const OPEN_START = 60;
 const OPEN_RUNOFF = 100;
+
+/** Something solid sitting on the racing surface. */
+export interface Obstacle {
+  /** Centerline sample it sits beside. */
+  idx: number;
+  /** Sideways offset from the centerline (positive is left). */
+  lateral: number;
+  x: number;
+  z: number;
+  radius: number;
+  kind: 'barrier' | 'boulder';
+}
 
 /**
  * The race course: a spline through the track's control points, resampled to
@@ -17,7 +29,11 @@ export class Track {
   readonly n: number;
   readonly ds: number;
   readonly length: number;
+  /** Half the track's nominal width. The actual half-width varies along the course: see hw. */
   readonly halfWidth: number;
+  /** Half-width of the racing surface at each sample. */
+  readonly hw: Float32Array;
+  readonly obstacles: Obstacle[] = [];
   readonly px: Float32Array;
   readonly py: Float32Array;
   readonly pz: Float32Array;
@@ -61,7 +77,33 @@ export class Track {
     this.lz = new Float32Array(n);
     this.curv = new Float32Array(n);
     this.slope = new Float32Array(n);
+    this.hw = new Float32Array(n);
 
+    // Width: eased between keyframes, so the course squeezes and opens up.
+    const keys = [...(def.widths ?? [])].sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < n; i++) {
+      let w = def.width;
+      if (keys.length) {
+        const u = i / n;
+        let a = keys[keys.length - 1];
+        let b = keys[0];
+        let span = 1 - a[0] + b[0];
+        let into = u >= a[0] ? u - a[0] : u + 1 - a[0];
+        for (let k = 0; k < keys.length - 1; k++) {
+          if (u >= keys[k][0] && u < keys[k + 1][0]) {
+            a = keys[k];
+            b = keys[k + 1];
+            span = b[0] - a[0];
+            into = u - a[0];
+          }
+        }
+        // Point-to-point tracks don't wrap: hold the end values.
+        if (!def.closed && u < keys[0][0]) w = keys[0][1];
+        else if (!def.closed && u >= keys[keys.length - 1][0]) w = keys[keys.length - 1][1];
+        else w = a[1] + (b[1] - a[1]) * smoothstep(0, 1, span > 0 ? into / span : 0);
+      }
+      this.hw[i] = w / 2;
+    }
     for (let i = 0; i < n; i++) {
       this.px[i] = sp[i].x;
       this.py[i] = sp[i].y;
@@ -74,6 +116,15 @@ export class Track {
       for (let i = 0; i < n; i++) {
         const u = (i * this.ds - (lip - j.length)) / j.length;
         if (u > 0 && u <= 1) this.py[i] += j.height * u * u;
+      }
+    }
+
+    // Rollers: a run of rounded bumps.
+    for (const r of def.rollers ?? []) {
+      const from = r.at * len;
+      for (let i = 0; i < n; i++) {
+        const u = (i * this.ds - from) / r.length;
+        if (u > 0 && u < 1) this.py[i] += r.height * 0.5 * (1 - Math.cos(u * r.count * Math.PI * 2));
       }
     }
 
@@ -116,7 +167,39 @@ export class Track {
       this.startS = this.startIdx * this.ds;
       this.raceLength = (this.finishIdx - this.startIdx) * this.ds;
     }
+    this.placeObstacles();
   }
+
+  /** Scatters obstacles along the course: same places every time, clear of the grid and of jump landings. */
+  private placeObstacles() {
+    const def = this.def;
+    const rnd = mulberry32(def.seed * 131 + 7);
+    const len = this.length;
+    const from = this.startS + 160;
+    const to = this.closed ? len - 120 : this.finishIdx * this.ds - 120;
+    const taken: number[] = [];
+    let tries = 0;
+    while (this.obstacles.length < (def.obstacles ?? 0) && tries++ < 4000) {
+      const s = from + rnd() * (to - from);
+      if (taken.some((t) => Math.abs(t - s) < 70)) continue;
+      // Keep run-ups and landing zones clear.
+      if (def.jumps.some((j) => s > j.at * len - 50 && s < j.at * len + 110)) continue;
+      if ((def.rollers ?? []).some((r) => s > r.at * len - 20 && s < r.at * len + r.length + 30)) continue;
+      const idx = this.wrap(Math.round(s / this.ds));
+      const hw = this.hw[idx];
+      if (hw < 8.5 || Math.abs(this.curv[idx]) > 0.012) continue;
+      const kind = rnd() < 0.55 ? 'barrier' : 'boulder';
+      const lateral = (rnd() < 0.5 ? -1 : 1) * hw * (0.2 + rnd() * 0.5);
+      taken.push(s);
+      this.obstacles.push({
+        idx,
+        lateral,
+        x: this.px[idx] + this.lx[idx] * lateral,
+        z: this.pz[idx] + this.lz[idx] * lateral,
+        radius: kind === 'barrier' ? 1.3 : 1.1 + rnd() * 0.5,
+        kind,
+      });
+    }  }
 
   wrap(i: number) {
     const n = this.n;

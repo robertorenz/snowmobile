@@ -323,7 +323,6 @@ export class World {
   private buildScenery() {
     const { track, terrain, def, theme } = this;
     const rnd = mulberry32(def.seed * 7919);
-    const hw = track.halfWidth;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
@@ -340,10 +339,10 @@ export class World {
       tries++;
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
-      const d = terrain.distAt(x, z);
-      if (d < hw + 3.5) continue;
+      const d = terrain.edgeAt(x, z);
+      if (d < 3.5) continue;
       // Dense forest lining the course, thinning out up the slopes.
-      const keep = d < hw + 45 ? 0.9 : d < 130 ? 0.35 : 0.05;
+      const keep = d < 45 ? 0.9 : d < 118 ? 0.35 : 0.05;
       if (rnd() > keep) continue;
       terrain.normal(x, z, v);
       if (v.y < 0.78) continue;
@@ -352,7 +351,7 @@ export class World {
       s.set(scale, scale * (0.9 + rnd() * 0.35), scale);
       v.set(x, terrain.height(x, z) - 0.15, z);
       trees.setMatrixAt(placed++, m.compose(v, q, s));
-      if (d < hw + 60) this.colliders.add({ x, z, r: 0.35 * scale });
+      if (d < 60) this.colliders.add({ x, z, r: 0.35 * scale });
     }
     trees.count = placed;
     trees.castShadow = true;
@@ -373,8 +372,8 @@ export class World {
       tries++;
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
-      const d = terrain.distAt(x, z);
-      if (d < hw + 6 || d > 120) continue;
+      const d = terrain.edgeAt(x, z);
+      if (d < 6 || d > 108) continue;
       const scale = 0.8 + rnd() * 2.2;
       q.setFromEuler(new THREE.Euler(rnd() * 3, rnd() * 3, rnd() * 3));
       s.set(scale * (0.8 + rnd() * 0.6), scale * (0.5 + rnd() * 0.4), scale * (0.8 + rnd() * 0.6));
@@ -417,8 +416,8 @@ export class World {
     s.set(1, 1, 1);
     for (let i = 0; i < track.n; i += step) {
       for (const side of [1, -1]) {
-        const x = track.px[i] + track.lx[i] * side * (hw + 0.4);
-        const z = track.pz[i] + track.lz[i] * side * (hw + 0.4);
+        const x = track.px[i] + track.lx[i] * side * (track.hw[i] + 0.4);
+        const z = track.pz[i] + track.lz[i] * side * (track.hw[i] + 0.4);
         v.set(x, terrain.height(x, z), z);
         poles.setMatrixAt(placed, m.compose(v, q, s));
         poles.setColorAt(placed, side > 0 ? blue : red);
@@ -428,6 +427,55 @@ export class World {
     poles.count = placed;
     poles.frustumCulled = false;
     this.scene.add(poles);
+
+    // --- Obstacles on the racing surface ---
+    if (track.obstacles.length) {
+      const sc = document.createElement('canvas');
+      sc.width = 256;
+      sc.height = 64;
+      const sg = sc.getContext('2d')!;
+      sg.fillStyle = '#f6a821';
+      sg.fillRect(0, 0, 256, 64);
+      sg.fillStyle = '#14181d';
+      for (let x = -64; x < 256; x += 64) {
+        sg.beginPath();
+        sg.moveTo(x, 64);
+        sg.lineTo(x + 32, 64);
+        sg.lineTo(x + 96, 0);
+        sg.lineTo(x + 64, 0);
+        sg.fill();
+      }
+      const stripes = new THREE.CanvasTexture(sc);
+      stripes.colorSpace = THREE.SRGBColorSpace;
+      const barrierMat = new THREE.MeshStandardMaterial({
+        map: stripes,
+        roughness: 0.7,
+        emissive: 0xffffff,
+        emissiveMap: stripes,
+        emissiveIntensity: theme.night ? 0.7 : 0.25,
+      });
+      const iceMat = new THREE.MeshStandardMaterial({ color: 0x3f86c4, roughness: 0.3, flatShading: true });
+      const barrierGeo = new THREE.BoxGeometry(2.5, 1.1, 0.55);
+      const boulderGeo = new THREE.DodecahedronGeometry(1, 0);
+      for (const o of track.obstacles) {
+        const y = terrain.height(o.x, o.z);
+        let mesh: THREE.Mesh;
+        if (o.kind === 'barrier') {
+          mesh = new THREE.Mesh(barrierGeo, barrierMat);
+          mesh.position.set(o.x, y + 0.55, o.z);
+          mesh.rotation.y = track.yawAt(o.idx);
+        } else {
+          mesh = new THREE.Mesh(boulderGeo, iceMat);
+          mesh.position.set(o.x, y + o.radius * 0.35, o.z);
+          mesh.scale.set(o.radius, o.radius * 0.8, o.radius);
+          mesh.rotation.y = o.idx;
+        }
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.scene.add(mesh);
+        this.colliders.add({ x: o.x, z: o.z, r: o.radius });
+      }
+    }
 
     // --- Start / finish gates ---
     this.scene.add(this.makeGate(track.startIdx, track.closed ? 'START / FINISH' : 'START'));
@@ -470,7 +518,7 @@ export class World {
 
   private makeGate(idx: number, label: string) {
     const { track, terrain } = this;
-    const hw = track.halfWidth;
+    const hw = track.hw[idx];
     const gate = new THREE.Group();
     const span = hw * 2 + 4;
     const postMat = new THREE.MeshStandardMaterial({ color: 0x18344f, roughness: 0.6, metalness: 0.3 });

@@ -31,7 +31,6 @@ export class AIDriver {
     const s = this.sled;
     const track = world.track;
     const cfg = this.cfg;
-    const hw = track.halfWidth;
     const speed = s.speed;
     const inp = s.input;
 
@@ -44,6 +43,8 @@ export class AIDriver {
     // Line: drift to the inside of the corner ahead.
     const lookN = Math.round((9 + speed * 0.5) / track.ds);
     const ti = track.wrap(s.idx + lookN);
+    // Plan for the narrower of where we are and where we're heading.
+    const hw = Math.min(track.hw[s.idx], track.hw[ti]);
     let want = this.baseLane + clamp(track.curv[ti] * 45, -1, 1) * hw * 0.5;
 
     // Traffic: move off the line of a sled just ahead.
@@ -55,7 +56,30 @@ export class AIDriver {
       }
     }
     want = clamp(want, -(hw - 2.5), hw - 2.5);
-    this.lane += (want - this.lane) * Math.min(1, 1.8 * dt);
+
+    // Obstacles: if the line runs into one, pass on the side with more room.
+    let dodging = false;
+    let blocked = false;
+    for (const o of track.obstacles) {
+      let ahead = o.idx - s.idx;
+      if (track.closed) {
+        if (ahead < -track.n / 2) ahead += track.n;
+        else if (ahead > track.n / 2) ahead -= track.n;
+      }
+      const dist = ahead * track.ds;
+      if (dist < -3 || dist > 22 + speed * 1.4) continue;
+      const clear = o.radius + 2.8;
+      // Pass on the side we're already on, unless there's no room there.
+      let side = s.lateral >= o.lateral ? 1 : -1;
+      if (Math.abs(o.lateral + side * clear) > hw - 1.5) side = -side;
+      if ((want - o.lateral) * side < clear) {
+        want = o.lateral + side * clear;
+        dodging = true;
+      }
+      // Still lined up with it and close: ease off until we're clear.
+      if (dist < 30 && Math.abs(s.lateral - o.lateral) < o.radius + 1.8) blocked = true;
+    }
+    this.lane += (want - this.lane) * Math.min(1, (dodging ? 6 : 1.8) * dt);
 
     const tx = track.px[ti] + track.lx[ti] * this.lane;
     const tz = track.pz[ti] + track.lz[ti] * this.lane;
@@ -72,6 +96,7 @@ export class AIDriver {
       if (c > kMax) kMax = c;
     }
     let target = Math.sqrt((SLED.aLat * cfg.corner * 0.82) / Math.max(kMax, 1e-4));
+    if (blocked) target = Math.min(target, Math.max(16, speed * 0.8));
     if (this.coolDown) target = track.closed ? Math.min(target, 16) : 0;
 
     if (speed < target) {

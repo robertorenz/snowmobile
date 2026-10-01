@@ -33,11 +33,13 @@ A gamepad also works: left stick steers, triggers are throttle and brake, A boos
 
 | Level | Track | Type | Setting |
 |---|---|---|---|
-| 1 | Pine Meadow | Circuit, 3 laps | Clear day, wide and forgiving |
-| 2 | Frostbite Ridge | Circuit, 2 laps | Golden hour, hills and two jumps |
-| 3 | Glacier Run | Point-to-point descent | Bright glacier, three jumps |
-| 4 | Aurora Pass | Circuit, 2 laps | Night, technical, headlights |
-| 5 | Whiteout Summit | Point-to-point descent | Blizzard, low visibility |
+| 1 | Pine Meadow | Circuit, 3 laps | Clear day, rolling and forgiving; 2 jumps, 4 obstacles |
+| 2 | Frostbite Ridge | Circuit, 2 laps | Golden hour, a 40 m climb; 4 jumps, 7 obstacles |
+| 3 | Glacier Run | Point-to-point descent | Bright glacier, sweeping bends; 5 jumps, 10 obstacles |
+| 4 | Aurora Pass | Circuit, 2 laps | Night, technical, headlights; 3 jumps, 9 obstacles |
+| 5 | Whiteout Summit | Point-to-point descent | Blizzard, low visibility; 7 jumps, 14 obstacles |
+
+Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of rollers, and has striped barriers and ice boulders on the racing surface. Hitting one costs most of your speed; the AI riders steer around them.
 
 Finishing in the top 3 unlocks the next level. Best place and time are saved per track and difficulty in the browser's local storage.
 
@@ -77,4 +79,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`, then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` and a number of `obstacles`. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

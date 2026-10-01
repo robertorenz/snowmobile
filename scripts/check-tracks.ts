@@ -28,6 +28,6 @@ for (const def of TRACKS) {
   console.log(
     `${def.name.padEnd(18)} length ${t.length.toFixed(0).padStart(5)} m | race ${t.raceLength.toFixed(0).padStart(5)} m | ` +
       `min radius ${(1 / maxK).toFixed(0).padStart(4)} m | max grade ${(maxSlope * 100).toFixed(0).padStart(3)}% | ` +
-      `min separation ${minSep.toFixed(0)} m at ${sepAt}`,
+      `min separation ${minSep.toFixed(0)} m at ${sepAt} | width ${(Math.min(...t.hw) * 2).toFixed(0)}-${(Math.max(...t.hw) * 2).toFixed(0)} m | ${t.obstacles.length} obstacles`,
   );
 }

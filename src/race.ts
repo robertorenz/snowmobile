@@ -88,7 +88,7 @@ export class Race {
       sled.remote = entry.kind === 'human' ? !isPlayer : !simulateAI;
       const row = Math.floor(slot / 2);
       const side = slot % 2 ? -1 : 1;
-      const lateral = side * track.halfWidth * 0.38;
+      const lateral = side * track.hw[track.startIdx] * 0.38;
       sled.spawn(world, track.startS - 7 - row * 8 - (slot % 2) * 3, lateral);
       this.sleds.push(sled);
       if (isPlayer) local = sled;
@@ -191,9 +191,9 @@ export class Race {
       }
       const facing = Math.sin(p.yaw) * track.tx[p.idx] + Math.cos(p.yaw) * track.tz[p.idx];
       this.wrongWay = facing < -0.35 && p.speed > 4 ? this.wrongWay + dt : 0;
-      const lost = Math.abs(p.lateral) > track.halfWidth + 22 || (p.speed < 1.5 && p.input.throttle > 0.5);
+      const lost = Math.abs(p.lateral) > track.hw[p.idx] + 22 || (p.speed < 1.5 && p.input.throttle > 0.5);
       this.stranded = lost ? this.stranded + dt : 0;
-      if (Math.abs(p.lateral) > track.halfWidth + 70) p.resetToTrack(world);
+      if (Math.abs(p.lateral) > track.hw[p.idx] + 70) p.resetToTrack(world);
     }
 
     this.rank();
