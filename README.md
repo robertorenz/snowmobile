@@ -4,6 +4,17 @@ A 3D snowmobile racing game that runs in the browser. Race five AI riders to the
 
 **Play it:** https://robertorenz.github.io/snowmobile/
 
+![Thaw Meadow: a snow road through a green meadow, with a river alongside](docs/screenshots/thaw-meadow.jpg)
+
+| | |
+|---|---|
+| ![Track and difficulty menu](docs/screenshots/menu.jpg) | ![Snowmobile with coil-over suspension](docs/screenshots/snowmobile.jpg) |
+| Track select, with a demo race behind it | The snowmobile and its working suspension |
+| ![Mirror Lake: racing across the ice](docs/screenshots/mirror-lake.jpg) | ![Aurora Pass at night](docs/screenshots/aurora-pass.jpg) |
+| Mirror Lake: fast, slippery ice | Aurora Pass: night racing by headlight |
+| ![Switchback Pass at golden hour](docs/screenshots/switchback-pass.jpg) | |
+| Switchback Pass: steep hills and obstacles | |
+
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All models, terrain and sound are generated in code — there are no asset files.
 
 ## Run it
