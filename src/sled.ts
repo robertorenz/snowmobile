@@ -1,7 +1,25 @@
 import * as THREE from 'three';
 import { buildSledModel, SledModel } from './sledModel';
 import type { World } from './world';
-import { clamp, lerp } from './util';
+import { clamp, lerp, wrapAngle } from './util';
+
+/** A sled's state as sent between computers in an online race. */
+export interface SledNet {
+  /** Grid slot. */
+  i: number;
+  p: [number, number, number];
+  v: [number, number, number];
+  y: number;
+  st: number;
+  pr: number;
+  la: number;
+  b: number;
+  g: number;
+  /** Finish time, or 0 while still racing. */
+  f: number;
+  /** 1 once the rider has left the race. */
+  x: number;
+}
 
 export interface SledInput {
   throttle: number;
@@ -62,8 +80,73 @@ export class Sled {
   finishTime = 0;
   place = 0;
 
+  /** Driven by another computer; we only display it. */
+  remote = false;
+  /** Its rider left the race. */
+  gone = false;
+  private netPos = new THREE.Vector3();
+  private netYaw = 0;
+  private netAge = 10;
+  private netSeen = false;
+
   private up = new THREE.Vector3(0, 1, 0);
   private lean = 0;
+
+  /** Snapshot of this sled for the network. */
+  toNet(slot: number): SledNet {
+    const r = (v: number) => Math.round(v * 100) / 100;
+    return {
+      i: slot,
+      p: [r(this.pos.x), r(this.pos.y), r(this.pos.z)],
+      v: [r(this.vel.x), r(this.vel.y), r(this.vel.z)],
+      y: Math.round(this.yaw * 1000) / 1000,
+      st: r(this.input.steer),
+      pr: r(this.progress),
+      la: r(this.lateral),
+      b: this.boosting ? 1 : 0,
+      g: this.grounded ? 1 : 0,
+      f: this.finished ? this.finishTime : 0,
+      x: this.gone ? 1 : 0,
+    };
+  }
+
+  /** Takes a snapshot received for a remote sled. */
+  applyNet(s: SledNet) {
+    this.netPos.set(s.p[0], s.p[1], s.p[2]);
+    this.vel.set(s.v[0], s.v[1], s.v[2]);
+    this.netYaw = s.y;
+    this.input.steer = s.st;
+    this.progress = s.pr;
+    this.lateral = s.la;
+    this.boosting = !!s.b;
+    this.grounded = !!s.g;
+    if (s.f > 0 && !this.finished) {
+      this.finished = true;
+      this.finishTime = s.f;
+    }
+    if (s.x) this.gone = true;
+    this.netAge = 0;
+    if (!this.netSeen) {
+      this.netSeen = true;
+      this.pos.copy(this.netPos);
+      this.yaw = this.netYaw;
+    }
+  }
+
+  /** Moves a remote sled: coast along its last known velocity, easing onto each new snapshot. */
+  updateRemote(dt: number, world: World) {
+    this.netAge += dt;
+    if (this.netSeen) {
+      // Stop coasting if snapshots dry up, rather than sailing off the map.
+      if (this.netAge < 0.5) this.netPos.addScaledVector(this.vel, dt);
+      const k = 1 - Math.exp(-12 * dt);
+      this.pos.lerp(this.netPos, k);
+      this.yaw += wrapAngle(this.netYaw - this.yaw) * k;
+      this.pos.y = Math.max(this.pos.y, world.terrain.height(this.pos.x, this.pos.z));
+      this.idx = world.track.nearest(this.pos.x, this.pos.z, this.idx);
+    }
+    this.syncModel(dt);
+  }
 
   constructor(
     readonly name: string,

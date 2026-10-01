@@ -13,7 +13,23 @@ export interface UICallbacks {
   onQuit(): void;
   onNext(): void;
   onToggleMute(): void;
+  /** Create or join an online room. Rejects with a message to show the player. */
+  onOnline(action: 'host' | 'join', name: string, code: string): Promise<void>;
+  onLeaveRoom(): void;
 }
+
+/** The online room this player is in, as shown on the menu. */
+export interface RoomView {
+  code: string;
+  isHost: boolean;
+  racing: boolean;
+  track: number;
+  difficulty: Difficulty;
+  players: { name: string; me: boolean; host: boolean }[];
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 export interface HudState {
   place: number;
@@ -39,7 +55,20 @@ export interface ResultsData {
   newBest: boolean;
   unlockedName: string | null;
   hasNext: boolean;
+  online: boolean;
 }
+
+const standingRows = (standings: Standing[]) =>
+  standings
+    .map(
+      (s) => `
+        <tr class="${s.sled.isPlayer ? 'me' : ''}">
+          <td class="pos">${s.place}</td>
+          <td><span class="swatch" style="background:${hex(s.sled.color)}"></span>${escapeHtml(s.sled.name)}</td>
+          <td class="time">${formatTime(s.time)}${s.estimated ? '<span class="est">est.</span>' : ''}</td>
+        </tr>`,
+    )
+    .join('');
 
 const el = <T extends HTMLElement = HTMLElement>(html: string) => {
   const t = document.createElement('template');
@@ -110,6 +139,15 @@ export class UI {
   private mapXform: ((x: number, z: number) => [number, number]) | null = null;
   private refs: Record<string, HTMLElement> = {};
   private selected = 0;
+  private room: RoomView | null = null;
+
+  /** Shows (or clears) the online room on the menu. */
+  setRoom(room: RoomView | null) {
+    this.room = room;
+    if (room) this.selected = room.track;
+    else this.selected = Math.min(this.selected, this.save.unlocked - 1);
+    this.renderMenu();
+  }
 
   constructor(
     private root: HTMLElement,
@@ -130,15 +168,20 @@ export class UI {
 
   renderMenu() {
     const save = this.save;
+    const room = this.room;
+    // Guests see the host's choices but can't change them.
+    const guest = !!room && !room.isHost;
+    const difficulty = room ? room.difficulty : save.difficulty;
     const diffButtons = (Object.keys(DIFFICULTIES) as Difficulty[])
       .map(
         (d) =>
-          `<button class="seg ${d === save.difficulty ? 'active' : ''}" data-diff="${d}">${DIFFICULTIES[d].label}</button>`,
+          `<button class="seg ${d === difficulty ? 'active' : ''}" data-diff="${d}" ${guest ? 'disabled' : ''}>${DIFFICULTIES[d].label}</button>`,
       )
       .join('');
 
     const cards = TRACKS.map((t, i) => {
-      const locked = i >= save.unlocked;
+      // Every track is open in an online room.
+      const locked = !room && i >= save.unlocked;
       const res = save.results[resultKey(t.id, save.difficulty)];
       const meta = locked
         ? `Finish top 3 on ${TRACKS[i - 1].name} to unlock`
@@ -148,7 +191,7 @@ export class UI {
             ? `${t.laps} laps · circuit`
             : 'Point-to-point descent';
       return `
-        <button class="track-card ${i === this.selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-track="${i}" ${locked ? 'disabled' : ''}>
+        <button class="track-card ${i === this.selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-track="${i}" ${locked || (guest && i !== this.selected) ? 'disabled' : ''}>
           <canvas width="112" height="112"></canvas>
           <span class="track-text">
             <span class="track-level">Level ${i + 1}${res && res.bestPlace <= 3 ? `<span class="medal m${res.bestPlace}">${ordinal(res.bestPlace)}</span>` : ''}</span>
@@ -160,18 +203,50 @@ export class UI {
     }).join('');
 
     const sel = TRACKS[this.selected];
+    const roomBox = room
+      ? `
+        <div class="room">
+          <div class="room-head">
+            <div><div class="room-label">Online room</div><div class="room-code">${room.code}</div></div>
+            <div class="room-actions">
+              <button class="btn small" data-act="copy">Copy invite link</button>
+              <button class="btn small ghost" data-act="leave">Leave</button>
+            </div>
+          </div>
+          <div class="room-players">${room.players
+            .map(
+              (p) =>
+                `<span class="chip ${p.me ? 'me' : ''}">${escapeHtml(p.name)}${p.host ? '<small>host</small>' : ''}</span>`,
+            )
+            .join('')}</div>
+          <div class="room-note">${
+            room.racing
+              ? 'A race is under way. You will join the next one.'
+              : room.isHost
+                ? 'Share the code or link. Empty seats are filled with AI riders.'
+                : 'Waiting for the host to start the race.'
+          }</div>
+        </div>`
+      : '';
+    const startButton = !room
+      ? `<button class="btn primary big" data-act="start">Race ${sel.name}</button>
+         <button class="btn wide" data-act="online">Play online with friends</button>`
+      : room.isHost
+        ? `<button class="btn primary big" data-act="start">Start online race</button>`
+        : `<button class="btn primary big" disabled>Waiting for host…</button>`;
     this.menu.innerHTML = `
       <div class="menu-panel">
         <header class="brand">
           <div class="brand-mark">POWDER<span>RUSH</span></div>
           <div class="brand-sub">Snowmobile Racing</div>
         </header>
+        ${roomBox}
         <div class="section-label">Track</div>
         <div class="track-list">${cards}</div>
-        <div class="section-label">Difficulty</div>
+        <div class="section-label">${room ? 'AI difficulty' : 'Difficulty'}</div>
         <div class="segmented">${diffButtons}</div>
-        <p class="diff-blurb">${DIFFICULTIES[save.difficulty].blurb}</p>
-        <button class="btn primary big" data-act="start">Race ${sel.name}</button>
+        <p class="diff-blurb">${DIFFICULTIES[difficulty].blurb}</p>
+        ${startButton}
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
           <button class="btn ghost" data-act="mute">${save.muted ? 'Sound: Off' : 'Sound: On'}</button>
@@ -183,7 +258,17 @@ export class UI {
       </div>`;
 
     this.menu.querySelectorAll<HTMLCanvasElement>('.track-card canvas').forEach((c, i) => {
-      drawOutline(c, TRACKS[i], i >= save.unlocked ? '#5d7387' : '#e9f3fa', 5, 14);
+      drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 5, 14);
+    });
+    this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
+    this.menu.querySelector('[data-act="leave"]')?.addEventListener('click', () => this.cb.onLeaveRoom());
+    const copy = this.menu.querySelector<HTMLButtonElement>('[data-act="copy"]');
+    copy?.addEventListener('click', () => {
+      const link = `${location.origin}${location.pathname}?room=${room!.code}`;
+      navigator.clipboard?.writeText(link).then(
+        () => (copy.textContent = 'Link copied'),
+        () => (copy.textContent = link),
+      );
     });
     this.menu.querySelectorAll<HTMLButtonElement>('[data-track]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -200,7 +285,7 @@ export class UI {
         this.renderMenu();
       }),
     );
-    this.menu.querySelector('[data-act="start"]')!.addEventListener('click', () => this.cb.onStart());
+    this.menu.querySelector('[data-act="start"]')?.addEventListener('click', () => this.cb.onStart());
     this.menu.querySelector('[data-act="help"]')!.addEventListener('click', () => this.showHelp());
     this.menu.querySelector('[data-act="mute"]')!.addEventListener('click', () => {
       this.cb.onToggleMute();
@@ -308,21 +393,86 @@ export class UI {
     );
   }
 
-  showPause() {
+  showPause(online = false) {
+    // An online race can't be paused; the menu just overlays it.
     const m = this.openModal(`
-      <h2>Paused</h2>
+      <h2>${online ? 'Race menu' : 'Paused'}</h2>
+      ${online ? '<p class="modal-lead">The race keeps running for everyone.</p>' : ''}
       <div class="modal-actions column">
-        <button class="btn primary" data-act="resume">Resume</button>
-        <button class="btn" data-act="restart">Restart race</button>
+        <button class="btn primary" data-act="resume">${online ? 'Back to race' : 'Resume'}</button>
+        ${online ? '' : '<button class="btn" data-act="restart">Restart race</button>'}
         <button class="btn" data-act="help">Controls</button>
-        <button class="btn ghost" data-act="quit">Quit to menu</button>
+        <button class="btn ghost" data-act="quit">${online ? 'Leave race' : 'Quit to menu'}</button>
       </div>`);
     this.bind(m, {
       resume: () => this.cb.onResume(),
       restart: () => this.cb.onRestart(),
       quit: () => this.cb.onQuit(),
-      help: () => this.showHelp(() => this.showPause()),
+      help: () => this.showHelp(() => this.showPause(online)),
     });
+  }
+
+  /** Create-or-join dialog for online play. */
+  showOnline(prefillCode = '') {
+    const m = this.openModal(
+      `
+      <h2>Play online</h2>
+      <p class="modal-lead">Race friends on their own computers. One of you creates a room and shares its code.</p>
+      <label class="field"><span>Your name</span>
+        <input type="text" data-in="name" maxlength="14" autocomplete="off" value="${escapeHtml(this.save.playerName)}" placeholder="Rider" /></label>
+      <button class="btn primary wide" data-act="host">Create a room</button>
+      <div class="or"><span>or join one</span></div>
+      <div class="join-row">
+        <input type="text" data-in="code" maxlength="4" autocomplete="off" spellcheck="false" placeholder="CODE" value="${escapeHtml(prefillCode)}" />
+        <button class="btn" data-act="join">Join room</button>
+      </div>
+      <div class="status" data-ref="status" role="status"></div>
+      <div class="modal-actions"><button class="btn ghost" data-act="close">Cancel</button></div>`,
+      true,
+    );
+    const name = m.querySelector<HTMLInputElement>('[data-in="name"]')!;
+    const code = m.querySelector<HTMLInputElement>('[data-in="code"]')!;
+    const status = m.querySelector<HTMLElement>('[data-ref="status"]')!;
+    const buttons = m.querySelectorAll<HTMLButtonElement>('button');
+    (prefillCode && name.value ? m.querySelector<HTMLButtonElement>('[data-act="join"]')! : name).focus();
+    code.addEventListener('input', () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '')));
+
+    const go = async (action: 'host' | 'join') => {
+      if (action === 'join' && code.value.length < 4) {
+        status.textContent = 'Enter the 4-letter room code.';
+        status.className = 'status error';
+        return;
+      }
+      buttons.forEach((b) => (b.disabled = true));
+      status.textContent = action === 'host' ? 'Creating room…' : 'Connecting…';
+      status.className = 'status';
+      try {
+        await this.cb.onOnline(action, name.value, code.value);
+        this.closeModal();
+      } catch (err) {
+        // The dialog may have been replaced while we were connecting.
+        if (!status.isConnected) return;
+        status.textContent = err instanceof Error ? err.message : 'Connection failed.';
+        status.className = 'status error';
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    };
+    code.addEventListener('keydown', (e) => e.key === 'Enter' && void go('join'));
+    this.bind(m, { host: () => void go('host'), join: () => void go('join'), close: () => this.closeModal() });
+  }
+
+  /** Replaces the classification in an open results dialog (online races update as riders finish). */
+  refreshStandings(standings: Standing[]) {
+    const table = this.modalLayer.querySelector('.standings');
+    if (table) table.innerHTML = standingRows(standings);
+  }
+
+  showNotice(title: string, message: string) {
+    const m = this.openModal(`
+      <h2>${escapeHtml(title)}</h2>
+      <p class="modal-lead">${escapeHtml(message)}</p>
+      <div class="modal-actions"><button class="btn primary" data-act="close">OK</button></div>`);
+    this.bind(m, { close: () => this.closeModal() });
   }
 
   showHelp(onClose?: () => void) {
@@ -353,19 +503,14 @@ export class UI {
 
   showResults(d: ResultsData) {
     const headline = d.playerPlace === 1 ? 'Victory!' : d.playerPlace <= 3 ? 'Podium finish' : 'Race complete';
-    const rows = d.standings
-      .map(
-        (s) => `
-        <tr class="${s.sled.isPlayer ? 'me' : ''}">
-          <td class="pos">${s.place}</td>
-          <td><span class="swatch" style="background:${hex(s.sled.color)}"></span>${s.sled.name}</td>
-          <td class="time">${formatTime(s.time)}${s.estimated ? '<span class="est">est.</span>' : ''}</td>
-        </tr>`,
-      )
-      .join('');
+    const rows = standingRows(d.standings);
     const notes: string[] = [];
-    if (d.newBest) notes.push(`<div class="note good">New personal best on ${DIFFICULTIES[d.difficulty].label}</div>`);
-    if (d.unlockedName) notes.push(`<div class="note good">Level unlocked: ${d.unlockedName}</div>`);
+    if (d.online) {
+      // Online results don't count toward solo progression.
+    } else if (d.newBest) notes.push(`<div class="note good">New personal best on ${DIFFICULTIES[d.difficulty].label}</div>`);
+    if (d.online) {
+      // No unlock notes either.
+    } else if (d.unlockedName) notes.push(`<div class="note good">Level unlocked: ${d.unlockedName}</div>`);
     else if (d.playerPlace > 3) notes.push(`<div class="note">Finish in the top 3 to unlock the next level.</div>`);
 
     const m = this.openModal(
@@ -380,9 +525,13 @@ export class UI {
       ${notes.join('')}
       <table class="standings">${rows}</table>
       <div class="modal-actions">
-        ${d.hasNext ? '<button class="btn primary" data-act="next">Next track</button>' : ''}
+        ${
+          d.online
+            ? '<button class="btn primary" data-act="quit">Back to room</button>'
+            : `${d.hasNext ? '<button class="btn primary" data-act="next">Next track</button>' : ''}
         <button class="btn ${d.hasNext ? '' : 'primary'}" data-act="restart">Race again</button>
-        <button class="btn ghost" data-act="quit">Menu</button>
+        <button class="btn ghost" data-act="quit">Menu</button>`
+        }
       </div>`,
       true,
     );
@@ -396,7 +545,7 @@ export class UI {
   showError(message: string) {
     const m = this.openModal(`
       <h2>Something went wrong</h2>
-      <p class="modal-lead">${message}</p>
+      <p class="modal-lead">${escapeHtml(message)}</p>
       <div class="modal-actions"><button class="btn primary" data-act="close">Close</button></div>`);
     this.bind(m, { close: () => this.closeModal() });
   }

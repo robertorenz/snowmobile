@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import './style.css';
 import { TRACKS, Difficulty } from './tracks';
 import { World } from './world';
-import { Race } from './race';
+import { Race, NetRace, RACERS, AI_NAMES, RIDER_COLORS } from './race';
+import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
 import { SLED, Sled } from './sled';
 import { Input } from './input';
 import { AudioEngine } from './audio';
-import { UI, HudState } from './ui';
+import { UI, HudState, RoomView } from './ui';
 import { loadSave, writeSave, resultKey } from './storage';
 import { clamp, lerp, wrapAngle } from './util';
 
@@ -40,6 +41,10 @@ class Game {
   private focus = new THREE.Vector3();
   private headlight: THREE.SpotLight | null = null;
 
+  private net: NetSession | null = null;
+  private netTimer = 0;
+  private standingsTimer = 0;
+
   constructor() {
     const canvas = document.getElementById('game') as HTMLCanvasElement;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -51,15 +56,23 @@ class Game {
 
     this.ui = new UI(document.getElementById('ui')!, this.save, {
       onSelectTrack: (i) => {
-        this.save.lastTrack = i;
+        if (!this.net) this.save.lastTrack = i;
         writeSave(this.save);
+        this.net?.setSelection(i, this.save.difficulty);
         void this.load(i, true);
       },
       onDifficulty: (d: Difficulty) => {
         this.save.difficulty = d;
         writeSave(this.save);
+        this.net?.setSelection(this.ui.selectedTrack, d);
+        this.syncRoom();
       },
-      onStart: () => void this.startRace(this.ui.selectedTrack),
+      onStart: () => {
+        if (this.net) this.hostStartOnline();
+        else void this.startRace(this.ui.selectedTrack);
+      },
+      onOnline: (action, name, code) => this.goOnline(action, name, code),
+      onLeaveRoom: () => this.leaveRoom(),
       onResume: () => this.setPaused(false),
       onRestart: () => void this.startRace(this.trackIndex),
       onQuit: () => void this.toMenu(),
@@ -71,12 +84,18 @@ class Game {
     window.addEventListener('pointerdown', () => this.audio.start());
     window.addEventListener('keydown', () => this.audio.start());
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.mode === 'race' && !this.resultsShown) this.setPaused(true);
+      if (document.hidden && this.mode === 'race' && !this.resultsShown && !this.race?.online) this.setPaused(true);
     });
     this.resize();
 
+    window.addEventListener('pagehide', () => this.net?.leave());
+
     void this.load(this.ui.selectedTrack, true);
     requestAnimationFrame((t) => this.frame(t));
+
+    // An invite link opens straight into the join dialog.
+    const invite = cleanCode(new URLSearchParams(location.search).get('room') ?? '');
+    if (invite.length === 4) this.ui.showOnline(invite);
   }
 
   private resize() {
@@ -96,7 +115,7 @@ class Game {
   }
 
   /** Builds (or reuses) a track's world and puts a fresh grid of racers on it. */
-  private async load(index: number, attract: boolean) {
+  private async load(index: number, attract: boolean, difficulty = this.save.difficulty, net: NetRace | null = null) {
     if (this.busy) return;
     this.busy = true;
     const def = TRACKS[index];
@@ -116,12 +135,13 @@ class Game {
       const world = this.world!;
       this.trackIndex = index;
       this.renderer.toneMappingExposure = world.theme.exposure;
-      this.race = new Race(world, this.save.difficulty, attract);
+      this.race = new Race(world, difficulty, attract, net);
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
       if (world.theme.night) this.headlight = addHeadlight(lit);
       this.camSnap = true;
       this.finishTimer = 0;
+      this.standingsTimer = 0;
       this.resultsShown = false;
       this.banner = '';
     } catch (err) {
@@ -148,25 +168,139 @@ class Game {
   }
 
   private async toMenu() {
-    if (this.busy) return;
+    await this.whenIdle();
+    if (this.net && this.race?.online) {
+      // Leaving an online race: the host ends it for everyone, a guest just drops out.
+      if (this.net.isHost) this.net.hostEnd();
+      else if (this.race.player) this.net.sendState({ ...this.race.netStates(false)[0], x: 1 });
+    }
     this.ui.closeModal();
     this.ui.showHud(false);
     this.mode = 'menu';
     this.paused = false;
-    await this.load(this.trackIndex, true);
+    await this.load(this.net ? this.net.lobby.track : this.trackIndex, true);
     this.ui.showMenu(true);
+    this.syncRoom();
   }
 
   private setPaused(p: boolean) {
     if (this.mode !== 'race' || this.resultsShown) return;
-    this.paused = p;
-    if (p) this.ui.showPause();
+    // An online race can't stop for one player; the menu just overlays it.
+    const online = !!this.race?.online;
+    this.paused = p && !online;
+    if (p) this.ui.showPause(online);
     else this.ui.closeModal();
+  }
+
+  /** Resolves once no track is being loaded. */
+  private async whenIdle() {
+    while (this.busy) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  // ---------- Online ----------
+
+  private roomView(): RoomView | null {
+    const net = this.net;
+    if (!net) return null;
+    return {
+      code: net.code,
+      isHost: net.isHost,
+      racing: net.lobby.racing && this.mode === 'menu',
+      track: net.lobby.track,
+      difficulty: net.lobby.difficulty,
+      players: net.lobby.players.map((p, i) => ({ name: p.name, me: p.id === net.myId, host: i === 0 })),
+    };
+  }
+
+  private syncRoom() {
+    if (this.net) this.ui.setRoom(this.roomView());
+  }
+
+  private async goOnline(action: 'host' | 'join', name: string, code: string) {
+    this.audio.start();
+    const rider = cleanName(name);
+    this.save.playerName = rider;
+    writeSave(this.save);
+    const net =
+      action === 'host'
+        ? await NetSession.host(rider, this.ui.selectedTrack, this.save.difficulty)
+        : await NetSession.join(cleanCode(code), rider);
+    this.net?.leave();
+    this.net = net;
+
+    net.onLobby = () => {
+      this.syncRoom();
+      // Guests follow the host's track choice on the menu backdrop.
+      if (!net.isHost && this.mode === 'menu' && net.lobby.track !== this.trackIndex) void this.load(net.lobby.track, true);
+    };
+    net.onStart = (msg) => void this.startOnline(msg);
+    net.onGo = () => {
+      if (this.race?.online) this.race.begin();
+    };
+    net.onEnd = () => {
+      if (this.mode === 'race' && this.race?.online) void this.toMenu();
+    };
+    net.onStates = (list, from) => {
+      if (this.mode === 'race' && this.race?.online) this.race.applyNet(list, net.isHost ? from : null);
+    };
+    net.onPlayerLeft = (id) => {
+      if (this.race?.online) this.race.markGone(id);
+    };
+    net.onClosed = (reason) => {
+      const inRace = this.mode === 'race' && !!this.race?.online;
+      this.clearRoom();
+      void (inRace ? this.toMenu() : Promise.resolve()).then(() => this.ui.showNotice('Disconnected', reason));
+    };
+    history.replaceState(null, '', `?room=${net.code}`);
+    net.onLobby();
+  }
+
+  private clearRoom() {
+    this.net = null;
+    this.ui.setRoom(null);
+    history.replaceState(null, '', location.pathname);
+  }
+
+  private leaveRoom() {
+    this.net?.leave();
+    this.clearRoom();
+  }
+
+  /** Host: build the grid (AI up front, players behind) and send everyone to the start. */
+  private hostStartOnline() {
+    const net = this.net;
+    if (!net || !net.isHost || this.busy) return;
+    const humans = net.lobby.players.slice(0, RACERS);
+    const grid: GridEntry[] = [];
+    for (let k = 0; k < RACERS - humans.length; k++) {
+      grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k] });
+    }
+    humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i] }));
+    const msg: StartMsg = { t: 'start', track: this.ui.selectedTrack, difficulty: this.save.difficulty, grid };
+    net.hostStart(msg);
+    void this.startOnline(msg);
+  }
+
+  private async startOnline(msg: StartMsg) {
+    const net = this.net;
+    if (!net) return;
+    this.audio.start();
+    await this.whenIdle();
+    this.ui.closeModal();
+    this.ui.showMenu(false);
+    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost });
+    this.mode = 'race';
+    this.paused = false;
+    this.netTimer = 0;
+    this.ui.selectTrack(msg.track);
+    this.ui.showHud(true, TRACKS[msg.track]);
+    net.sendReady();
   }
 
   private frame(now: number) {
     requestAnimationFrame((t) => this.frame(t));
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    // Never zero: the physics divides by it.
+    const dt = clamp((now - this.last) / 1000, 0.001, 0.05);
     this.last = now;
     const race = this.race;
     const world = this.world;
@@ -181,7 +315,7 @@ class Game {
     }
     if (this.mode === 'race') {
       if (this.input.consume('Escape', 'KeyP')) {
-        if (this.paused) this.setPaused(false);
+        if (this.paused || (race.online && this.ui.modalOpen && !this.resultsShown)) this.setPaused(false);
         else if (!this.ui.modalOpen) this.setPaused(true);
       }
       if (this.input.consume('KeyR') && !this.paused && race.player && race.phase === 'racing') {
@@ -201,6 +335,20 @@ class Game {
       if (race.phase === 'finished' && !this.resultsShown) {
         this.finishTimer += dt;
         if (this.finishTimer > 2.4) this.showResults(race);
+      }
+      if (this.net && race.online) {
+        // Exchange positions about 20 times a second.
+        this.netTimer += dt;
+        if (this.netTimer >= 0.05) {
+          this.netTimer = 0;
+          if (this.net.isHost) this.net.sendWorld(race.netStates(true));
+          else if (player) this.net.sendState(race.netStates(false)[0]);
+        }
+        // Keep the results table current while other riders are still finishing.
+        if (this.resultsShown && (this.standingsTimer += dt) >= 1) {
+          this.standingsTimer = 0;
+          this.ui.refreshStandings(race.standings());
+        }
       }
     }
     this.input.endFrame();
@@ -250,7 +398,10 @@ class Game {
     const track = race.world.track;
     let banner = '';
     let tone: HudState['bannerTone'] = '';
-    if (race.phase === 'countdown') {
+    if (race.phase === 'waiting') {
+      banner = 'Waiting for riders…';
+      tone = 'info';
+    } else if (race.phase === 'countdown') {
       banner = String(Math.max(1, Math.ceil(race.countdown - 0.6)));
       tone = 'count';
     } else if (race.countdown > 0) {
@@ -270,7 +421,7 @@ class Game {
 
     return {
       place: player.place,
-      total: race.sleds.length,
+      total: race.fieldSize,
       lapLabel: track.closed ? 'LAP' : 'RUN',
       lapValue: track.closed ? `${race.playerLap}/${track.def.laps}` : `${Math.round(race.playerFraction() * 100)}%`,
       time: player.finished ? player.finishTime : race.time,
@@ -290,14 +441,16 @@ class Game {
     const def = TRACKS[this.trackIndex];
     const key = resultKey(def.id, race.difficulty);
     const prev = this.save.results[key];
-    const newBest = !!prev && player.finishTime < prev.bestTime;
-    this.save.results[key] = {
+    const online = race.online;
+    const newBest = !online && !!prev && player.finishTime < prev.bestTime;
+    // Online results don't count toward solo progression.
+    if (!online) this.save.results[key] = {
       bestPlace: prev ? Math.min(prev.bestPlace, player.place) : player.place,
       bestTime: prev ? Math.min(prev.bestTime, player.finishTime) : player.finishTime,
     };
     let unlockedName: string | null = null;
     const nextIndex = this.trackIndex + 1;
-    if (player.place <= 3 && nextIndex < TRACKS.length && this.save.unlocked <= nextIndex) {
+    if (!online && player.place <= 3 && nextIndex < TRACKS.length && this.save.unlocked <= nextIndex) {
       this.save.unlocked = nextIndex + 1;
       unlockedName = TRACKS[nextIndex].name;
     }
@@ -311,6 +464,7 @@ class Game {
       newBest,
       unlockedName,
       hasNext: nextIndex < TRACKS.length && this.save.unlocked > nextIndex,
+      online,
     });
   }
 

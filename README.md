@@ -43,6 +43,23 @@ Finishing in the top 3 unlocks the next level. Best place and time are saved per
 
 Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to the limit they corner, and whether they use boost.
 
+## Online multiplayer
+
+Up to six people can race each other, each on their own computer.
+
+1. One player clicks **Play online with friends**, enters a name and chooses **Create a room**.
+2. They share the 4-letter room code, or the invite link from **Copy invite link**.
+3. Friends open the game, click **Play online with friends** and join with the code (the invite link fills it in).
+4. The host picks the track and AI difficulty and starts the race. Empty seats are filled with AI riders.
+
+Every track is available in an online room, and online results do not affect solo progression.
+
+How it works: players connect directly to the host's browser over WebRTC (via [PeerJS](https://peerjs.com/), whose free public server is used only to introduce the players to each other). Each computer simulates its own sled, the host simulates the AI riders, and positions are exchanged about 20 times a second. There is no game server, so:
+
+- The room exists only while the host keeps the game open, and the host's tab must stay visible (browsers pause hidden tabs).
+- An online race cannot be paused. When the host leaves a race, it ends for everyone.
+- Some strict corporate or mobile networks block direct connections; joining will then time out.
+
 ## How it is put together
 
 | File | What it does |
@@ -54,6 +71,7 @@ Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to
 | `src/sled.ts`, `src/sledModel.ts` | Snowmobile physics (arcade handling, jumps, collisions) and the model. |
 | `src/ai.ts` | AI rider: racing line, corner speed, traffic avoidance, boost, recovery. |
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |
+| `src/net.ts` | Online rooms: hosting, joining, lobby and the messages exchanged during a race. |
 | `src/ui.ts`, `src/style.css` | Menu, HUD, minimap and modal dialogs. |
 | `src/main.ts` | Game loop, camera, and glue between the above. |
 

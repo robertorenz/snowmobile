@@ -13,11 +13,13 @@ export interface SaveData {
   difficulty: Difficulty;
   lastTrack: number;
   muted: boolean;
+  /** Name shown to other players online. */
+  playerName: string;
   /** Keyed by `${trackId}:${difficulty}`. */
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {
