@@ -77,10 +77,10 @@ The snow road is broken up by patches of other ground, roughly one every 240 m o
 
 | Surface | Looks like | What it does |
 |---|---|---|
-| Ice | Blue, glossy | Almost no grip: the sled keeps its speed but slides, as on Mirror Lake |
+| Ice | Blue, glossy | Next to no grip: the sled slides wherever it was already going, and throttle and brakes work at 40%. Ice is only laid on straights and gentle bends |
 | Shale | Dark gravel with loose stones | Top speed down about a quarter, and it rattles the suspension |
 | Bare rock | Grey slabs with cracks | The slowest: top speed down 40% |
-| Grass | Green tufts through the snow | Top speed down about 15% |
+| Grass | Matted turf with clumps of grass blades | Top speed down about 15% |
 
 AI riders slow for bends on ice and move to the clear half of the road when a slow patch covers only one side.
 

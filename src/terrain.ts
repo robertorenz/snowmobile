@@ -422,8 +422,11 @@ function makeSnowMaterial(track: Track) {
             float slab = vnoise(vWXZ * 0.45);
             float crack = smoothstep(0.06, 0.0, abs(fract(slab * 4.0) - 0.5));
             vec3 stone = mix(vec3(0.36, 0.37, 0.4), vec3(0.52, 0.53, 0.55), vnoise(vWXZ * 1.4)) * (1.0 - 0.45 * crack);
-            float tuft = smoothstep(0.42, 0.62, vnoise(vWXZ * 0.9) * 0.6 + vnoise(vWXZ * 3.7) * 0.4);
-            vec3 turf = mix(vec3(0.24, 0.42, 0.16), vec3(0.4, 0.56, 0.24), vnoise(vWXZ * 5.0));
+            // Matted winter grass: mostly covered, with snow lying in the hollows and dry straw mixed in.
+            float tuft = smoothstep(0.3, 0.5, vnoise(vWXZ * 0.55) * 0.55 + vnoise(vWXZ * 2.3) * 0.3 + vnoise(vWXZ * 9.0) * 0.15);
+            vec3 turf = mix(vec3(0.19, 0.3, 0.12), vec3(0.36, 0.45, 0.2), vnoise(vWXZ * 1.7));
+            turf = mix(turf, vec3(0.55, 0.5, 0.3), smoothstep(0.55, 0.8, vnoise(vWXZ * 4.3 + 17.0)) * 0.7);
+            turf *= 0.84 + 0.32 * vnoise(vWXZ * 11.0);
             diffuseColor.rgb = mix(diffuseColor.rgb, sheet, s.x);
             diffuseColor.rgb = mix(diffuseColor.rgb, shale, s.y);
             diffuseColor.rgb = mix(diffuseColor.rgb, stone, s.z);

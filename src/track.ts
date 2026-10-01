@@ -365,9 +365,17 @@ export class Track {
       // Thawed ground shows more grass and stone; deep winter, more ice.
       const pick = rnd();
       const meadow = !!def.theme.meadow;
-      const type = meadow
+      let type = meadow
         ? pick < 0.15 ? ICE : pick < 0.45 ? SHALE : pick < 0.65 ? ROCK : GRASS
         : pick < 0.3 ? ICE : pick < 0.57 ? SHALE : pick < 0.8 ? ROCK : GRASS;
+      // Ice on a tight bend is unrideable: put gravel there instead. On a gentle bend, the AI is told to arrive slowly,
+      // since it can't brake once it's on the ice.
+      let bend = 0;
+      for (let i = a; i <= b; i++) bend = Math.max(bend, Math.abs(this.curv[i]));
+      if (type === ICE && bend > 0.011) type = SHALE;
+      if (type === ICE && bend > 0.0035) {
+        for (let i = Math.max(0, a - 28); i <= b; i++) this.caution[i] = Math.min(this.caution[i], 29);
+      }
       // Half-width patches leave a line round them, if the course is wide enough to offer one.
       const roomy = this.hw[(a + b) >> 1] >= 7;
       const sidePick = rnd();

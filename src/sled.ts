@@ -40,7 +40,9 @@ export const SLED = {
   aLat: 32,
   turnMax: 1.8,
   grip: 6.5,
-  iceGrip: 1.5,
+  iceGrip: 0.45,
+  /** On ice the track can't bite: this much of the normal drive and braking gets through. */
+  iceTraction: 0.4,
   radius: 1.15,
   boostSpeed: 1.26,
   boostAccel: 1.7,
@@ -245,11 +247,12 @@ export class Sled {
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
       const rough = patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1;
       const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : rough);
-      const acc = P.accel * (this.boosting ? P.boostAccel : 1);
+      const bite = onIce ? P.iceTraction : 1;
+      const acc = P.accel * (this.boosting ? P.boostAccel : 1) * bite;
 
       if (inp.throttle > 0) vf += inp.throttle * acc * (1 - vf / cap) * dt;
       if (inp.brake > 0) {
-        if (vf > 0.5) vf = Math.max(0, vf - inp.brake * P.brake * dt);
+        if (vf > 0.5) vf = Math.max(0, vf - inp.brake * P.brake * bite * dt);
         else vf = Math.max(-P.reverseSpeed, vf - inp.brake * P.accel * 0.6 * dt);
       }
       // Deep snow off the groomed surface drags hard.

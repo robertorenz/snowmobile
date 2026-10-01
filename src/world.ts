@@ -593,7 +593,7 @@ export class World {
     for (let i = 0; i < track.n; i++) {
       const type = track.surface[i];
       if ((type !== GRASS && type !== ROCK && type !== SHALE) || track.surfFade[i] < 0.5) continue;
-      const per = type === GRASS ? 5 : type === ROCK ? 2 : 1;
+      const per = type === GRASS ? 16 : type === ROCK ? 2 : 1;
       for (let k = 0; k < per; k++) {
         const side = track.surfSide[i];
         const reach = track.hw[i] - 0.6;
@@ -602,9 +602,9 @@ export class World {
         const z = track.pz[i] + track.lz[i] * lat + track.tz[i] * (rnd() - 0.5) * track.ds;
         q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
         if (type === GRASS) {
-          const h = 0.25 + rnd() * 0.3;
-          s.set(0.5 + rnd() * 0.5, h / 0.4, 0.5 + rnd() * 0.5);
-          v.set(x, terrain.height(x, z) + h / 2 - 0.03, z);
+          const size = 0.4 + rnd() * rnd() * 1.0;
+          s.set(size, size * (0.7 + rnd() * 0.7), size);
+          v.set(x, terrain.height(x, z) - 0.02, z);
           tufts.push(new THREE.Matrix4().compose(v, q, s));
         } else {
           const size = type === ROCK ? 0.16 + rnd() * 0.22 : 0.08 + rnd() * 0.1;
@@ -614,15 +614,20 @@ export class World {
         }
       }
     }
-    const litter = (geo: THREE.BufferGeometry, mat: THREE.Material, list: THREE.Matrix4[]) => {
+    const tint = new THREE.Color();
+    const litter = (geo: THREE.BufferGeometry, mat: THREE.Material, list: THREE.Matrix4[], vary = false) => {
       if (!list.length) return;
       const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-      list.forEach((mat4, j) => mesh.setMatrixAt(j, mat4));
+      list.forEach((mat4, j) => {
+        mesh.setMatrixAt(j, mat4);
+        // Each clump its own shade, from fresh green to winter-dry straw.
+        if (vary) mesh.setColorAt(j, tint.setHSL(0.17 + rnd() * 0.13, 0.35 + rnd() * 0.3, 0.42 + rnd() * 0.16));
+      });
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
       this.scene.add(mesh);
     };
-    litter(new THREE.ConeGeometry(0.16, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x4d7a2c, roughness: 0.9, flatShading: true }), tufts);
+    litter(makeGrassClump(def.seed), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }), tufts, true);
     litter(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x5a5b5e, roughness: 0.95, flatShading: true }), stones);
 
     // --- Waterfalls ---
@@ -1233,6 +1238,45 @@ function makeRockGeometry(seed: number, snowy: boolean, rockHex: number) {
     }
   }
   geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return geo;
+}
+
+/**
+ * A clump of grass: a dozen thin blades fanning out from one point, each
+ * bending over toward its tip. Vertex colours run dark at the root to pale
+ * at the tip, and the instance colour tints the whole clump.
+ */
+function makeGrassClump(seed: number) {
+  const rnd = mulberry32(seed * 31 + 9);
+  const pos: number[] = [];
+  const col: number[] = [];
+  const blades = 12;
+  for (let b = 0; b < blades; b++) {
+    const a = (b / blades) * Math.PI * 2 + rnd() * 0.5;
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const h = 0.22 + rnd() * 0.3;
+    const lean = 0.08 + rnd() * 0.28;
+    const w = 0.022 + rnd() * 0.014;
+    // Blade outline: two points at the root, two at the knee, one at the tip.
+    const root = 0.03 + rnd() * 0.04;
+    const pts = [
+      [dx * root - dz * w, 0, dz * root + dx * w],
+      [dx * root + dz * w, 0, dz * root - dx * w],
+      [dx * (root + lean * 0.35) - dz * w * 0.75, h * 0.6, dz * (root + lean * 0.35) + dx * w * 0.75],
+      [dx * (root + lean * 0.35) + dz * w * 0.75, h * 0.6, dz * (root + lean * 0.35) - dx * w * 0.75],
+      [dx * (root + lean), h, dz * (root + lean)],
+    ];
+    for (const k of [0, 1, 2, 1, 3, 2, 2, 3, 4]) {
+      pos.push(pts[k][0], pts[k][1], pts[k][2]);
+      const up = pts[k][1] / h;
+      col.push(0.45 + up * 0.55, 0.5 + up * 0.5, 0.4 + up * 0.45);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
   return geo;
 }
 

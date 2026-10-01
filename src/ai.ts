@@ -99,7 +99,7 @@ export class AIDriver {
     for (let k = 0; k <= scanN; k += 2) {
       // Ice has a fraction of the grip, so treat bends on it as far tighter.
       const j = track.wrap(s.idx + k);
-      const c = Math.abs(track.curv[j]) * (track.ice[j] || track.surface[j] === ICE ? 3.5 : 1);
+      const c = Math.abs(track.curv[j]) * (track.ice[j] || track.surface[j] === ICE ? 7 : 1);
       if (c > kMax) kMax = c;
       if (k * track.ds < 45 && track.caution[j] < caution) caution = track.caution[j];
     }
