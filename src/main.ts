@@ -575,8 +575,15 @@ class Game {
 
     if (this.input.consume('KeyC')) {
       // C steps through the three views.
-      this.save.camera = this.save.camera === 'chase' ? 'rider' : this.save.camera === 'rider' ? 'top' : 'chase';
-      this.flash(this.save.camera === 'top' ? 'BIRD\'S-EYE VIEW' : this.save.camera === 'rider' ? 'RIDER VIEW' : 'CHASE VIEW', 1.1);
+      // Chase, rider, then the bird's-eye view at four heights, then round again.
+      const s = this.save;
+      if (s.camera === 'chase') s.camera = 'rider';
+      else if (s.camera === 'rider') {
+        s.camera = 'top';
+        s.topZoom = 1;
+      } else if (s.topZoom < 4) s.topZoom++;
+      else s.camera = 'chase';
+      this.flash(this.save.camera === 'top' ? (this.save.topZoom > 1 ? `BIRD\'S-EYE VIEW  x${this.save.topZoom}` : 'BIRD\'S-EYE VIEW') : this.save.camera === 'rider' ? 'RIDER VIEW' : 'CHASE VIEW', 1.1);
       this.camSnap = true;
       writeSave(this.save);
     }
@@ -1032,10 +1039,11 @@ class Game {
       const fz = Math.cos(this.camYaw);
       const ratio = clamp(sled.speed / SLED.maxSpeed, 0, 1.3);
       // Climb with speed, so there is more road in view the faster you go.
-      const height = 29 + ratio * 14;
+      const zoom = clamp(this.save.topZoom || 1, 1, 4);
+      const height = (29 + ratio * 14) * zoom;
       const y = this.camSnap ? sled.pos.y + height : lerp(cam.position.y, sled.pos.y + height, 1 - Math.exp(-3 * dt));
       // Sit a little behind the sled, so most of the screen shows what's coming.
-      const lead = 7 + ratio * 8;
+      const lead = (7 + ratio * 8) * zoom;
       cam.position.set(sled.pos.x + fx * (lead - 4), y, sled.pos.z + fz * (lead - 4));
       cam.up.set(fx, 0, fz);
       cam.lookAt(sled.pos.x + fx * lead, sled.pos.y, sled.pos.z + fz * lead);

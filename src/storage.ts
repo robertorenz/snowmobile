@@ -37,6 +37,8 @@ export interface SaveData {
   cups: Record<string, number>;
   /** Chase camera behind the sled, the rider's-eye view, or looking straight down from above. */
   camera: 'chase' | 'rider' | 'top';
+  /** How high the bird's-eye view sits: 1 is the standard height, up to 4 times that. */
+  topZoom: number;
   /** Id of the chosen snowmobile. */
   sled: string;
   /** Which surface patches appear on the tracks. */
@@ -47,7 +49,7 @@ export interface SaveData {
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, quality: 'auto', music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, quality: 'auto', music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', topZoom: 1, sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {
