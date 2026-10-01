@@ -71,6 +71,15 @@ Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to
 
 The ground beside each course is broken by rock ridges and clusters of outcrops (snow-capped in winter), and most tracks have a waterfall or two. Outcrops and waterfalls close to the course are solid. The circuits also climb and drop far more than their layouts suggest: Frostbite Ridge rises about 110 m and Switchback Pass about 190 m, with single hills of up to 25 m on top of that. Slopes pull hard: a steep climb can drag a sled down to 60 km/h, and the descents push it past its normal top speed.
 
+### Life around the course
+
+None of this affects the race; it is there to look at.
+
+- **Steam train:** every track has a railway along the mountainside beside the course, with a locomotive pulling a tender and five carriages, smoke trailing from the chimney. It runs out of one rock tunnel and into another, then comes round again.
+- **Sky:** drifting clouds, flocks of birds circling in V formation, three hot-air balloons, and an airliner with a contrail crossing about once a minute. At night there are no birds or balloons and the airliner shows a blinking beacon; in the blizzard only the train runs.
+
+![A steam train, balloons, clouds and an airliner over Thaw Meadow](docs/screenshots/scenery.jpg)
+
 ### Plunges
 
 Eleven of the twelve tracks (all but Mirror Lake) have at least one plunge: a drop of 24 to 75 m in under 200 m, with grades of 40 to 60%. On eight of them the drop is bent into a slalom with bends as tight as a 20 m radius, so it cannot be taken flat out: brake, swerve, and pick a line. On the circuits each plunge is paid for by an equally steep climb elsewhere on the lap. The camera tips down into drops and up at climbs so you can see what is coming.
@@ -129,6 +138,7 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 | `src/track.ts` | Turns control points into an evenly sampled centerline with curvature and slope. |
 | `src/terrain.ts` | Heightmap terrain shaped around the track; snow shader with edge lines and start/finish chequers. |
 | `src/world.ts` | Scene for one track: trees, rocks, marker poles, gates, sky, snowfall, lighting. |
+| `src/ambient.ts` | Scenery with a life of its own: the train, clouds, birds, balloons and airliner. |
 | `src/sled.ts`, `src/sledModel.ts` | Snowmobile physics (arcade handling, jumps, collisions, ice) and the model, including its working suspension: the body rides on springs and each ski follows the snow under it. |
 | `src/ai.ts` | AI rider: racing line, corner speed, traffic avoidance, boost, recovery. |
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |

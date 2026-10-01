@@ -5,6 +5,7 @@ import { Terrain, RIVER_DEPTH, RIVER_WATER, CHASM_DEPTH } from './terrain';
 import type { TrackDef, Theme } from './tracks';
 import { mulberry32 } from './util';
 import { makeNoise } from './noise';
+import { Ambient } from './ambient';
 
 export interface Collider {
   x: number;
@@ -123,7 +124,7 @@ export class SnowSpray {
 }
 
 let dotTexture: THREE.Texture | undefined;
-function softDot() {
+export function softDot() {
   if (dotTexture) return dotTexture;
   const c = document.createElement('canvas');
   c.width = c.height = 64;
@@ -152,6 +153,7 @@ export class World {
   private auroraMat?: THREE.ShaderMaterial;
   private time = 0;
   readonly vehicles: Vehicle[] = [];
+  private ambient!: Ambient;
 
   constructor(readonly def: TrackDef) {
     const theme = (this.theme = def.theme);
@@ -185,6 +187,7 @@ export class World {
 
     this.buildSky();
     this.buildScenery();
+    this.ambient = new Ambient(this);
   }
 
   private buildSky() {
@@ -1135,6 +1138,7 @@ export class World {
     this.sun.target.position.copy(focus);
     this.sun.position.set(focus.x + (d[0] / l) * 200, focus.y + (d[1] / l) * 200, focus.z + (d[2] / l) * 200);
     this.spray.update(dt);
+    this.ambient.update(dt);
   }
 
   dispose() {
