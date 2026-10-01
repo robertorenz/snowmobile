@@ -752,7 +752,7 @@ export class UI {
         <tr><td><kbd>Shift</kbd> / <kbd>Space</kbd></td><td>Boost — recharges slowly, faster in the air</td></tr>
         <tr><td><kbd>F</kbd></td><td>Flip while in the air — land it for boost, land mid-flip and you wipe out</td></tr>
         <tr><td><kbd>E</kbd> / <kbd>Ctrl</kbd></td><td>Throw a snowball, if you are carrying one</td></tr>
-        <tr><td><kbd>C</kbd></td><td>Switch between chase camera and rider's view</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Change view: chase camera, rider's view, bird's-eye view from above</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset onto the track</td></tr>
         <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
         <tr><td><kbd>V</kbd></td><td>Rear-view mirror on / off</td></tr>

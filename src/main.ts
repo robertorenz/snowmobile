@@ -574,7 +574,9 @@ class Game {
     }
 
     if (this.input.consume('KeyC')) {
-      this.save.camera = this.save.camera === 'chase' ? 'rider' : 'chase';
+      // C steps through the three views.
+      this.save.camera = this.save.camera === 'chase' ? 'rider' : this.save.camera === 'rider' ? 'top' : 'chase';
+      this.flash(this.save.camera === 'top' ? 'BIRD\'S-EYE VIEW' : this.save.camera === 'rider' ? 'RIDER VIEW' : 'CHASE VIEW', 1.1);
       this.camSnap = true;
       writeSave(this.save);
     }
@@ -702,6 +704,7 @@ class Game {
   private photoCamera(sled: Sled, world: World) {
     const ph = this.photo!;
     const cam = this.camera;
+    cam.up.set(0, 1, 0);
     const flat = Math.cos(ph.pitch) * ph.dist;
     const x = sled.pos.x + Math.sin(ph.yaw) * flat;
     const z = sled.pos.z + Math.cos(ph.yaw) * flat;
@@ -1000,6 +1003,8 @@ class Game {
 
   private updateCamera(dt: number, sled: Sled, world: World, orbit: boolean) {
     const cam = this.camera;
+    // Every view but the overhead one keeps the horizon level.
+    cam.up.set(0, 1, 0);
     if (orbit) {
       // Menu backdrop: a slow orbit around the leader of the demo race.
       const a = this.clock * 0.12 + 0.6;
@@ -1016,6 +1021,29 @@ class Game {
       return;
     }
 
+    // Inside a tunnel there is nothing to see from above, so drop to the chase view until it's out.
+    const roofed = world.track.walled[sled.idx] && !world.track.bridge[sled.idx];
+    if (this.save.camera === 'top' && !roofed) {
+      // Bird's-eye view: high above, looking down, with the direction of travel up the screen.
+      const want = sled.yaw;
+      if (this.camSnap) this.camYaw = want;
+      this.camYaw += wrapAngle(want - this.camYaw) * (1 - Math.exp(-3.5 * dt));
+      const fx = Math.sin(this.camYaw);
+      const fz = Math.cos(this.camYaw);
+      const ratio = clamp(sled.speed / SLED.maxSpeed, 0, 1.3);
+      // Climb with speed, so there is more road in view the faster you go.
+      const height = 36 + ratio * 16;
+      const y = this.camSnap ? sled.pos.y + height : lerp(cam.position.y, sled.pos.y + height, 1 - Math.exp(-3 * dt));
+      // Sit a little behind the sled, so most of the screen shows what's coming.
+      const lead = 9 + ratio * 9;
+      cam.position.set(sled.pos.x + fx * (lead - 4), y, sled.pos.z + fz * (lead - 4));
+      cam.up.set(fx, 0, fz);
+      cam.lookAt(sled.pos.x + fx * lead, sled.pos.y, sled.pos.z + fz * lead);
+      cam.fov = lerp(cam.fov, 52, 1 - Math.exp(-4 * dt));
+      cam.updateProjectionMatrix();
+      this.camSnap = false;
+      return;
+    }
     if (this.save.camera === 'rider') {
       // Rider's-eye view: from the helmet, looking where the sled points.
       const fx = Math.sin(sled.yaw);

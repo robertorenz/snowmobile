@@ -35,8 +35,8 @@ export interface SaveData {
   trials: Record<string, number>;
   /** Best final position per cup id. */
   cups: Record<string, number>;
-  /** Chase camera behind the sled, or the rider's-eye view. */
-  camera: 'chase' | 'rider';
+  /** Chase camera behind the sled, the rider's-eye view, or looking straight down from above. */
+  camera: 'chase' | 'rider' | 'top';
   /** Id of the chosen snowmobile. */
   sled: string;
   /** Which surface patches appear on the tracks. */
