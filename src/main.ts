@@ -349,6 +349,9 @@ class Game {
     net.onStates = (list, from) => {
       if (this.mode === 'race' && this.race?.online) this.race.applyNet(list, net.isHost ? from : null);
     };
+    net.onHit = (slot) => {
+      if (this.mode === 'race' && this.race?.online) this.race.hitSlot(slot);
+    };
     net.onPlayerLeft = (id) => {
       if (this.race?.online) this.race.markGone(id);
     };
@@ -415,6 +418,11 @@ class Game {
       return;
     }
 
+    if (this.input.consume('KeyC')) {
+      this.save.camera = this.save.camera === 'chase' ? 'rider' : 'chase';
+      this.camSnap = true;
+      writeSave(this.save);
+    }
     if (this.input.consume('KeyV')) {
       this.save.mirror = !this.save.mirror;
       writeSave(this.save);
@@ -511,12 +519,27 @@ class Game {
         this.audio.beep(660, 0.15);
         setTimeout(() => this.audio.beep(880, 0.25), 160);
         this.flash('FINAL LAP', 2.2);
-      } else if (e === 'finish') {
+      } else if (e === 'pickup') this.audio.beep(784, 0.12, 0.2);
+      else if (e === 'throw') this.audio.beep(330, 0.1, 0.2);
+      else if (e === 'struck') this.flash('HIT!', 1.0);
+      else if (e === 'finish') {
         this.audio.fanfare();
         this.flash('FINISH!', 2.4);
       }
     }
     race.events.length = 0;
+    const me = race.player;
+    if (me && me.trickResult) {
+      if (me.trickResult > 0) {
+        this.flash(me.trickResult > 1 ? `x FLIP!` : 'FLIP!', 1.4);
+        this.audio.beep(988, 0.12);
+        setTimeout(() => this.audio.beep(1319, 0.2), 110);
+      } else this.flash('WIPEOUT', 1.4);
+      me.trickResult = 0;
+    }
+    // Tell the other computers about any of their sleds our snowballs hit.
+    for (const slot of race.pendingHits) this.net?.sendHit(slot);
+    race.pendingHits.length = 0;
     for (const s of race.sleds) {
       if (s === race.player && s.impact > 4) this.audio.thud(s.impact);
       s.impact = 0;
@@ -562,6 +585,7 @@ class Game {
       speedKmh: player.speed * 3.6,
       boost: player.boost,
       boosting: player.boosting,
+      status: [player.item ? 'SNOWBALL  ·  E to throw' : '', player.shield ? 'SHIELD' : '', player.draft > 0.5 ? 'SLIPSTREAM' : ''].filter(Boolean),
       banner,
       bannerTone: tone,
       hint,
@@ -616,6 +640,23 @@ class Game {
       cam.fov = 55;
       cam.updateProjectionMatrix();
       cam.lookAt(sled.pos.x, sled.pos.y + 1, sled.pos.z);
+      this.camSnap = false;
+      return;
+    }
+
+    if (this.save.camera === 'rider') {
+      // Rider's-eye view: from the helmet, looking where the sled points.
+      const fx = Math.sin(sled.yaw);
+      const fz = Math.cos(sled.yaw);
+      cam.position.set(sled.pos.x - fx * 0.3, sled.pos.y + 1.72, sled.pos.z - fz * 0.3);
+      const ax = sled.pos.x + fx * 14;
+      const az = sled.pos.z + fz * 14;
+      const ahead = clamp(world.ground(ax, az, sled.idx) - sled.pos.y, -9, 9);
+      this.camTilt = this.camSnap ? ahead : lerp(this.camTilt, ahead, 1 - Math.exp(-6 * dt));
+      cam.lookAt(ax, sled.pos.y + 1.4 + this.camTilt * 0.85, az);
+      const ratio = clamp(sled.speed / SLED.maxSpeed, 0, 1.3);
+      cam.fov = lerp(cam.fov, 72 + ratio * 16, 1 - Math.exp(-4 * dt));
+      cam.updateProjectionMatrix();
       this.camSnap = false;
       return;
     }

@@ -40,6 +40,8 @@ export class Input {
     let brake = this.down('KeyS', 'ArrowDown') ? 1 : 0;
     let boost = this.down('ShiftLeft', 'ShiftRight', 'Space');
     let target = (this.down('KeyA', 'ArrowLeft') ? 1 : 0) - (this.down('KeyD', 'ArrowRight') ? 1 : 0);
+    let trick = this.down('KeyF');
+    let item = this.down('KeyE', 'ControlLeft', 'ControlRight');
     let analog = false;
 
     const pad = navigator.getGamepads?.().find((p) => p && p.connected);
@@ -52,6 +54,8 @@ export class Input {
       throttle = Math.max(throttle, pad.buttons[7]?.value ?? 0);
       brake = Math.max(brake, pad.buttons[6]?.value ?? 0);
       boost = boost || !!pad.buttons[0]?.pressed;
+      trick = trick || !!pad.buttons[2]?.pressed;
+      item = item || !!pad.buttons[1]?.pressed;
       // Map Start and Y onto the pause and reset keys.
       const map: [number, string][] = [
         [9, 'Escape'],
@@ -71,6 +75,6 @@ export class Input {
       const d = target - this.steer;
       this.steer += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
     }
-    return { throttle, brake, steer: this.steer, boost };
+    return { throttle, brake, steer: this.steer, boost, trick, item };
   }
 }

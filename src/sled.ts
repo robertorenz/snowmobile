@@ -19,6 +19,8 @@ export interface SledNet {
   g: number;
   /** Finish time, or 0 while still racing. */
   f: number;
+  /** Flip angle, for showing tricks. */
+  tr?: number;
   /** 1 once the rider has left the race. */
   x: number;
 }
@@ -29,7 +31,17 @@ export interface SledInput {
   /** -1..1, positive steers left. */
   steer: number;
   boost: boolean;
+  /** Held in the air to flip. */
+  trick?: boolean;
+  /** Use the held item (throw a snowball). */
+  item?: boolean;
 }
+
+const TAU = Math.PI * 2;
+/** How fast a flip turns, in radians a second: one rotation takes three quarters of a second. */
+const FLIP_RATE = TAU / 0.75;
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const _flip = new THREE.Quaternion();
 
 /** Handling constants shared by every sled (SI units). */
 export const SLED = {
@@ -63,6 +75,17 @@ export class Sled {
   readonly vel = new THREE.Vector3();
   yaw = 0;
   input: SledInput = { throttle: 0, brake: 0, steer: 0, boost: false };
+
+  /** How far through a flip the sled is, in radians; 0 when not flipping. */
+  trickAngle = 0;
+  /** Outcome of the last landing, for the HUD to announce: flips landed, or -1 for a bail. Cleared once read. */
+  trickResult = 0;
+  /** 0..1: how well tucked in behind another sled this one is. */
+  draft = 0;
+  /** A shield soaks up the next hit. */
+  shield = false;
+  /** The item being carried, if any. */
+  item: 'snowball' | null = null;
 
   /** Top-speed multiplier; AI pace is set through this. */
   speedScale = 1;
@@ -111,6 +134,7 @@ export class Sled {
       b: this.boosting ? 1 : 0,
       g: this.grounded ? 1 : 0,
       f: this.finished ? this.finishTime : 0,
+      tr: Math.round(this.trickAngle * 10) / 10,
       x: this.gone ? 1 : 0,
     };
   }
@@ -129,6 +153,7 @@ export class Sled {
       this.finished = true;
       this.finishTime = s.f;
     }
+    this.trickAngle = s.tr ?? 0;
     if (s.x) this.gone = true;
     this.netAge = 0;
     if (!this.netSeen) {
@@ -190,6 +215,18 @@ export class Sled {
     this.airTime = 0;
     world.groundNormal(x, z, this.idx, this.up);
     this.syncModel(0);
+  }
+
+  /** Hit by a snowball (or anything else thrown): a shield takes it, otherwise the sled is knocked back. */
+  struck() {
+    if (this.shield) {
+      this.shield = false;
+      return;
+    }
+    this.vel.x *= 0.55;
+    this.vel.z *= 0.55;
+    this.yaw += (Math.random() - 0.5) * 0.5;
+    this.impact = Math.max(this.impact, 8);
   }
 
   /** Recovers a lost sled: back to the centerline where it left, stopped. */
@@ -254,7 +291,7 @@ export class Sled {
       this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
       const rough = 1 - (1 - (patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1)) * D.rough;
-      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough);
+      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough) * (1 + 0.09 * this.draft);
       const bite = onIce ? P.iceTraction : 1;
       const acc = P.accel * D.accel * (this.boosting ? P.boostAccel : 1) * bite;
 
@@ -300,6 +337,20 @@ export class Sled {
     pos.y += vel.y * dt;
     if (pos.y <= ground) {
       // Touching: take on the slope's vertical speed, so a ramp lip launches the sled.
+      // Landing a flip: clean and it pays out boost, part-way round and it's a wreck.
+      if (this.trickAngle > 0.4) {
+        const turns = Math.round(this.trickAngle / TAU);
+        if (turns >= 1 && Math.abs(this.trickAngle - turns * TAU) < 1.0) {
+          this.boost = Math.min(1, this.boost + 0.45 * turns);
+          this.trickResult = turns;
+        } else {
+          vel.x *= 0.45;
+          vel.z *= 0.45;
+          this.trickResult = -1;
+          this.impact = Math.max(this.impact, 8);
+        }
+      }
+      this.trickAngle = 0;
       const hit = groundVy - vel.y;
       if (this.airTime > 0.25 && hit > 3) {
         this.impact = Math.max(this.impact, hit);
@@ -313,6 +364,17 @@ export class Sled {
     const gap = pos.y - ground;
     this.grounded = gap < 0.25;
     this.airTime = this.grounded ? 0 : this.airTime + dt;
+
+    // --- Flips: hold the trick key in the air; let go and the rotation carries on to the next full turn ---
+    if (!this.grounded && this.airTime > 0.12) {
+      const part = this.trickAngle % TAU;
+      // A flip can only be started with real air underneath, not off a ripple.
+      const room = gap > 0.9;
+      if ((inp.trick && (room || part > 0.01)) || part > 0.01) {
+        this.trickAngle += FLIP_RATE * dt;
+        if (!inp.trick && this.trickAngle % TAU < part) this.trickAngle = Math.round(this.trickAngle / TAU) * TAU;
+      }
+    }
 
     // --- Into the river: fished out and put back on the track ---
     if (this.grounded && terrain.wetAt(pos.x, pos.z) > 0.7) {
@@ -349,8 +411,11 @@ export class Sled {
       if (vn < 0) {
         vel.x -= 1.3 * vn * nx;
         vel.z -= 1.3 * vn * nz;
-        vel.x *= 0.55;
-        vel.z *= 0.55;
+        if (this.shield && -vn > 4) this.shield = false;
+        else {
+          vel.x *= 0.55;
+          vel.z *= 0.55;
+        }
         this.impact = Math.max(this.impact, -vn);
       }
     });
@@ -417,6 +482,7 @@ export class Sled {
     _fwd.crossVectors(_left, this.up).normalize();
     _left.crossVectors(this.up, _fwd).normalize();
     g.quaternion.setFromRotationMatrix(_m.makeBasis(_left, this.up, _fwd));
+    if (this.trickAngle) g.quaternion.multiply(_flip.setFromAxisAngle(X_AXIS, -this.trickAngle));
     g.position.copy(this.pos);
 
     const speedK = clamp(this.speed / 25, 0, 1);

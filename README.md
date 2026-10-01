@@ -40,6 +40,23 @@ Then open http://localhost:5173. `npm run build` produces a static site in `dist
 | `Esc` / `P` | Pause |
 | `V` | Rear-view mirror on / off |
 | `M` | Mute |
+| `F` | Flip while in the air |
+| `E` / `Ctrl` | Throw a snowball |
+| `C` | Switch between chase camera and rider's view |
+
+**Tricks:** hold `F` in the air to flip. Land it and each full rotation refills nearly half your boost; land part-way round and you wipe out and lose half your speed.
+
+**Slipstream:** tuck in within about 20 m behind another sled and your top speed rises by 9%.
+
+**Pickups** float over the road every 200 m or so and come back a few seconds after being taken:
+
+| Pickup | Looks like | Effect |
+|---|---|---|
+| Boost | Amber canister | Refills the boost meter |
+| Shield | Blue crystal | Soaks up the next snowball or crash |
+| Snowball | White ball | Carry one and throw it down the road; a hit knocks a rider back to about half speed |
+
+AI riders collect and use them too.
 
 A rear-view mirror at the top of the screen shows who is behind you.
 

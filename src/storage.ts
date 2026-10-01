@@ -16,6 +16,8 @@ export interface SaveData {
   muted: boolean;
   /** Rear-view mirror shown while racing. */
   mirror: boolean;
+  /** Chase camera behind the sled, or the rider's-eye view. */
+  camera: 'chase' | 'rider';
   /** Id of the chosen snowmobile. */
   sled: string;
   /** Which surface patches appear on the tracks. */
@@ -26,7 +28,7 @@ export interface SaveData {
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {

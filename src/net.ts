@@ -59,7 +59,9 @@ type Msg =
   | { t: 'go' }
   | { t: 'end' }
   | { t: 's'; s: SledNet }
-  | { t: 'w'; l: SledNet[] };
+  | { t: 'w'; l: SledNet[] }
+  /** A snowball landed on the sled in this grid slot. */
+  | { t: 'hit'; slot: number };
 
 export function cleanName(name: unknown) {
   const s = String(name ?? '')
@@ -89,6 +91,8 @@ export class NetSession {
   /** Host ended the race and returned everyone to the lobby. */
   onEnd: () => void = () => {};
   onStates: (list: SledNet[], from: string) => void = () => {};
+  /** Someone else's snowball hit a sled; whoever drives that slot applies it. */
+  onHit: (slot: number) => void = () => {};
   /** A player dropped out (host only). */
   onPlayerLeft: (id: string) => void = () => {};
   /** The room is gone (connection lost or host left). */
@@ -205,6 +209,10 @@ export class NetSession {
         if (p) p.sled = String(msg.sled ?? '').slice(0, 24);
         this.sendLobby();
         this.onLobby();
+      } else if (msg.t === 'hit') {
+        // Pass it on to everyone else, and take it ourselves in case it's one of ours.
+        for (const [other, c] of this.conns) if (other !== id && c.open) c.send(msg);
+        this.onHit(msg.slot);
       } else if (msg.t === 's') {
         this.onStates([msg.s], id);
       } else if (msg.t === 'ready') {
@@ -295,11 +303,19 @@ export class NetSession {
     else if (msg.t === 'go') this.onGo();
     else if (msg.t === 'end') this.onEnd();
     else if (msg.t === 'w') this.onStates(msg.l, HOST_ID);
+    else if (msg.t === 'hit') this.onHit(msg.slot);
   }
 
   /** Client: send our own sled to the host. */
   sendState(s: SledNet) {
     if (this.hostConn?.open) this.hostConn.send({ t: 's', s } satisfies Msg);
+  }
+
+  /** Report that our snowball hit the sled in a slot somebody else drives. */
+  sendHit(slot: number) {
+    const msg: Msg = { t: 'hit', slot };
+    if (this.isHost) this.broadcast(msg);
+    else if (this.hostConn?.open) this.hostConn.send(msg);
   }
 
   /** Client: our track is loaded. */

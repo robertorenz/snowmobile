@@ -35,6 +35,17 @@ export interface Vehicle {
   phase: number;
 }
 
+/** Something to ride through and collect. */
+export interface Pickup {
+  kind: 'boost' | 'shield' | 'snowball';
+  x: number;
+  y: number;
+  z: number;
+  mesh: THREE.Object3D;
+  /** Seconds until it comes back after being taken; 0 while available. */
+  respawn: number;
+}
+
 /** Half the length of highway that traffic runs along, either side of the track. */
 const ROAD_HALF = 92;
 
@@ -154,6 +165,7 @@ export class World {
   private auroraMat?: THREE.ShaderMaterial;
   private time = 0;
   readonly vehicles: Vehicle[] = [];
+  readonly pickups: Pickup[] = [];
   private ambient!: Ambient;
 
   constructor(
@@ -724,6 +736,7 @@ export class World {
 
     this.buildStructures();
     this.buildCrossings();
+    this.buildPickups();
 
     // --- Start / finish gates ---
     this.scene.add(this.makeGate(track.startIdx, track.closed ? 'START / FINISH' : 'START'));
@@ -884,6 +897,37 @@ export class World {
       if (Math.abs(along) < c.half + 5 && Math.abs(across) < ROAD_HALF + 10) return true;
     }
     return false;
+  }
+
+  /** Boost canisters, shields and snowballs floating over the road, one every 230 m or so. */
+  private buildPickups() {
+    const { track, def } = this;
+    const rnd = mulberry32(def.seed * 613 + 1);
+    const glow = (color: number) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.3 });
+    const make: Record<Pickup['kind'], () => THREE.Object3D> = {
+      boost: () => new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 1.0, 12), glow(0xf6a821)),
+      shield: () => new THREE.Mesh(new THREE.OctahedronGeometry(0.62), glow(0x1ea7e1)),
+      snowball: () => new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), glow(0xe9f2f8)),
+    };
+    const kinds: Pickup['kind'][] = ['boost', 'snowball', 'shield', 'boost', 'snowball'];
+    const from = track.startS + 150;
+    const to = (track.closed ? track.length : track.finishIdx * track.ds) - 60;
+    let k = Math.floor(rnd() * kinds.length);
+    for (let s = from + rnd() * 80; s < to; s += 200 + rnd() * 70) {
+      const i = track.wrap(Math.round(s / track.ds));
+      // Not in the middle of a jump or its landing, and not on a highway.
+      if (track.respawn[i] !== i || track.asphalt[i]) continue;
+      const lat = (rnd() * 2 - 1) * (track.hw[i] - 2) * 0.6;
+      const x = track.px[i] + track.lx[i] * lat;
+      const z = track.pz[i] + track.lz[i] * lat;
+      const kind = kinds[k++ % kinds.length];
+      const mesh = make[kind]();
+      mesh.scale.setScalar(1.35);
+      const y = this.ground(x, z, i) + 1.15;
+      mesh.position.set(x, y, z);
+      this.scene.add(mesh);
+      this.pickups.push({ kind, x, y, z, mesh, respawn: 0 });
+    }
   }
 
   /** Bridges where the course crosses over itself, and tunnels. */
@@ -1188,6 +1232,11 @@ export class World {
     this.sun.position.set(focus.x + (d[0] / l) * 200, focus.y + (d[1] / l) * 200, focus.z + (d[2] / l) * 200);
     this.spray.update(dt);
     this.ambient.update(dt);
+    for (const p of this.pickups) {
+      p.mesh.visible = p.respawn <= 0;
+      p.mesh.rotation.y += dt * 2.2;
+      p.mesh.position.y = p.y + Math.sin(this.time * 2.4 + p.x) * 0.15;
+    }
   }
 
   dispose() {

@@ -8,7 +8,7 @@ import { clamp, lerp } from './util';
 import { SLEDS, DEFAULT_SLED, sledById } from './sleds';
 
 export type RacePhase = 'waiting' | 'countdown' | 'racing' | 'finished';
-export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish';
+export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish' | 'pickup' | 'throw' | 'struck';
 
 export const RACERS = 6;
 export const AI_NAMES = ['Lindqvist', 'Tremblay', 'Yukimura', 'Kowalski', 'Halvorsen', 'Aspen'];
@@ -62,6 +62,9 @@ export class Race {
   /** Seconds the player has been stranded; drives the reset hint. */
   stranded = 0;
 
+  /** Grid slots of sleds driven elsewhere that our snowballs have hit; main sends these on. */
+  pendingHits: number[] = [];
+  private snowballs: { s: number; lateral: number; speed: number; owner: Sled; life: number; mesh: THREE.Mesh }[] = [];
   private ais: AIDriver[] = [];
   private humans: Sled[] = [];
   private autopilot: AIDriver | null = null;
@@ -161,6 +164,8 @@ export class Race {
       p.input.brake = playerInput.brake;
       p.input.steer = playerInput.steer;
       p.input.boost = playerInput.boost;
+      p.input.trick = playerInput.trick;
+      p.input.item = playerInput.item;
     }
 
     for (const s of this.sleds) {
@@ -170,6 +175,7 @@ export class Race {
       if (!frozen) this.emitSpray(s);
     }
     this.collide();
+    if (!frozen) this.extras(dt);
 
     // Finish line. Remote sleds report their own finish.
     for (const s of this.sleds) {
@@ -204,6 +210,98 @@ export class Race {
     }
 
     this.rank();
+  }
+
+  /** Slipstream, pickups and snowballs. */
+  private extras(dt: number) {
+    const { world } = this;
+    const track = world.track;
+    const p = this.player;
+
+    // Slipstream: tucked in close behind another sled, the air is easier.
+    for (const s of this.sleds) {
+      if (s.remote || s.gone) continue;
+      let towed = false;
+      for (const o of this.sleds) {
+        if (o === s || o.gone) continue;
+        const ahead = o.progress - s.progress;
+        if (ahead > 3 && ahead < 24 && Math.abs(o.lateral - s.lateral) < 2.4 && s.speed > 18) towed = true;
+      }
+      s.draft = clamp(s.draft + (towed ? 1.2 : -1.5) * dt, 0, 1);
+    }
+
+    // Pickups.
+    for (const item of world.pickups) {
+      if (item.respawn > 0) {
+        item.respawn -= dt;
+        continue;
+      }
+      for (const s of this.sleds) {
+        if (s.remote || s.gone) continue;
+        if (Math.hypot(s.pos.x - item.x, s.pos.z - item.z) > 2.3 || Math.abs(s.pos.y + 1 - item.y) > 2.6) continue;
+        if (item.kind === 'boost') s.boost = 1;
+        else if (item.kind === 'shield') s.shield = true;
+        else s.item = 'snowball';
+        item.respawn = 7;
+        if (s === p) this.events.push('pickup');
+        break;
+      }
+    }
+
+    // Throwing: the player on a key press, AI riders when someone is lined up ahead.
+    for (const s of this.sleds) {
+      if (s.remote || s.gone || !s.item) continue;
+      let fire = s === p && !this.autopilot ? !!s.input.item : false;
+      if (s !== p || this.autopilot) {
+        fire = this.sleds.some((o) => o !== s && !o.gone && o.progress - s.progress > 6 && o.progress - s.progress < 55 && Math.abs(o.lateral - s.lateral) < 3);
+      }
+      if (!fire) continue;
+      s.item = null;
+      const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xbfd9ee, emissiveIntensity: 0.6 }));
+      world.scene.add(mesh);
+      this.snowballs.push({ s: s.idx * track.ds + 3, lateral: s.lateral, speed: s.speed + 34, owner: s, life: 3.5, mesh });
+      if (s === p) this.events.push('throw');
+    }
+
+    // Snowballs fly down the course in their lane until they hit someone or melt.
+    for (let k = this.snowballs.length - 1; k >= 0; k--) {
+      const b = this.snowballs[k];
+      b.s += b.speed * dt;
+      b.life -= dt;
+      const i = track.wrap(Math.round(b.s / track.ds));
+      const x = track.px[i] + track.lx[i] * b.lateral;
+      const z = track.pz[i] + track.lz[i] * b.lateral;
+      b.mesh.position.set(x, world.ground(x, z, i) + 0.9, z);
+      let done = b.life <= 0 || (!track.closed && i >= track.n - 1);
+      for (let slot = 0; slot < this.sleds.length && !done; slot++) {
+        const o = this.sleds[slot];
+        if (o === b.owner || o.gone || o.finished) continue;
+        let gap = (o.idx - i) * track.ds;
+        if (track.closed) gap = ((gap + track.length * 1.5) % track.length) - track.length / 2;
+        if (Math.abs(gap) > 3 || Math.abs(o.lateral - b.lateral) > 1.8) continue;
+        // A sled driven on another computer has to be told it was hit.
+        if (o.remote) this.pendingHits.push(slot);
+        else {
+          o.struck();
+          if (o === p) this.events.push('struck');
+        }
+        done = true;
+      }
+      if (done) {
+        world.scene.remove(b.mesh);
+        b.mesh.geometry.dispose();
+        (b.mesh.material as THREE.Material).dispose();
+        this.snowballs.splice(k, 1);
+      }
+    }
+  }
+
+  /** A snowball thrown on another computer hit one of the sleds driven here. */
+  hitSlot(slot: number) {
+    const s = this.sleds[slot];
+    if (!s || s.remote || s.gone) return;
+    s.struck();
+    if (s === this.player) this.events.push('struck');
   }
 
   private emitSpray(s: Sled) {
@@ -340,6 +438,8 @@ export class Race {
   }
 
   dispose() {
+    for (const b of this.snowballs) this.world.scene.remove(b.mesh);
+    for (const item of this.world.pickups) item.respawn = 0;
     for (const s of this.sleds) {
       this.world.scene.remove(s.model.group);
       s.model.group.traverse((o) => {

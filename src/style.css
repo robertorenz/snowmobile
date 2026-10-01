@@ -1189,3 +1189,22 @@ kbd {
   border-radius: 999px;
   background: var(--ice-strong);
 }
+
+/* Notices above the speedometer: item held, shield, slipstream. */
+.hud-br .status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-bottom: 8px;
+  min-height: 0;
+}
+.hud-br .status span {
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #041622;
+  background: var(--ice);
+  border-radius: 999px;
+}

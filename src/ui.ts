@@ -48,6 +48,8 @@ export interface HudState {
   speedKmh: number;
   boost: number;
   boosting: boolean;
+  /** Short notices shown above the speed: item held, shield up, in a slipstream. */
+  status: string[];
   banner: string;
   bannerTone: 'count' | 'go' | 'warn' | 'info' | '';
   hint: string;
@@ -337,6 +339,7 @@ export class UI {
       <div class="hud-tc" data-ref="tc"><div class="timer" data-ref="time">0:00.00</div></div>
       <div class="hud-tr"><canvas class="minimap" width="360" height="360"></canvas></div>
       <div class="hud-br">
+        <div class="status" data-ref="status"></div>
         <div class="speed"><span data-ref="speed">0</span><small>km/h</small></div>
         <div class="boost"><div class="boost-label">BOOST</div><div class="boost-bar"><div class="boost-fill" data-ref="boost"></div></div></div>
       </div>
@@ -383,6 +386,11 @@ export class UI {
     r.speed.textContent = String(Math.round(s.speedKmh));
     r.boost.style.width = `${Math.round(s.boost * 100)}%`;
     r.boost.classList.toggle('active', s.boosting);
+    const status = s.status.join('|');
+    if (r.status.dataset.v !== status) {
+      r.status.dataset.v = status;
+      r.status.innerHTML = s.status.map((t) => `<span>${t}</span>`).join('');
+    }
     if (r.banner.textContent !== s.banner) r.banner.textContent = s.banner;
     r.banner.className = `banner ${s.bannerTone}`;
     if (r.hint.textContent !== s.hint) r.hint.textContent = s.hint;
@@ -592,12 +600,15 @@ export class UI {
         <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>Brake, then reverse</td></tr>
         <tr><td><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></td><td>Steer</td></tr>
         <tr><td><kbd>Shift</kbd> / <kbd>Space</kbd></td><td>Boost — recharges slowly, faster in the air</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Flip while in the air — land it for boost, land mid-flip and you wipe out</td></tr>
+        <tr><td><kbd>E</kbd> / <kbd>Ctrl</kbd></td><td>Throw a snowball, if you are carrying one</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Switch between chase camera and rider's view</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset onto the track</td></tr>
         <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
         <tr><td><kbd>V</kbd></td><td>Rear-view mirror on / off</td></tr>
         <tr><td><kbd>M</kbd></td><td>Mute</td></tr>
       </table>
-      <p class="modal-note">Stay between the blue (left) and red (right) lines — deep powder off the groomed track slows you down. Brake before tight corners. A gamepad works too: stick to steer, triggers for throttle and brake, A to boost.</p>
+      <p class="modal-note">Stay between the blue (left) and red (right) lines — deep powder off the groomed track slows you down. Brake before tight corners. Ride through the floating pickups: amber canisters refill boost, blue crystals are a shield against one hit, white balls are snowballs to throw. Tuck in close behind another sled for a slipstream. A gamepad works too: stick to steer, triggers for throttle and brake, A to boost, X to flip, B to throw.</p>
       <div class="modal-actions"><button class="btn primary" data-act="close">Got it</button></div>`,
       true,
     );
