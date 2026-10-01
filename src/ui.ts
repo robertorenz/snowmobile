@@ -817,7 +817,7 @@ export class UI {
         : '<button class="btn primary" data-act="quit">Back to room</button>';
       if (!d.isHost && d.hasNext) notes.push('<div class="note">The host starts the next race.</div>');
     }
-    const extras = `${d.canWatch ? '<button class="btn" data-act="watch">Watch the others finish</button>' : ''}`;
+    const extras = `${d.canReplay ? '<button class="btn" data-act="replay">Watch replay</button>' : ''}${d.canWatch ? '<button class="btn" data-act="watch">Watch the others finish</button>' : ''}`;
     if (d.coins) notes.unshift(`<div class="note good">+${d.coins} coins</div>`);
     const m = this.openModal(
       `

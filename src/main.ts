@@ -738,7 +738,7 @@ class Game {
     const me = race.player;
     if (me && me.trickResult) {
       if (me.trickResult > 0) {
-        this.flash(me.trickResult > 1 ? `x FLIP!` : 'FLIP!', 1.4);
+        this.flash(me.trickResult > 1 ? `${me.trickResult}x FLIP!` : 'FLIP!', 1.4);
         this.audio.beep(988, 0.12);
         setTimeout(() => this.audio.beep(1319, 0.2), 110);
       } else this.flash('WIPEOUT', 1.4);

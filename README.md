@@ -80,7 +80,9 @@ The menu's **Mode** switch chooses what the Race button starts.
 | Knockout | Every so often the rider in last place is eliminated. Last one standing wins |
 | Cup | A championship of four races scored on points (10, 7, 5, 3, 2, 1). There are four cups; each needs all its tracks unlocked |
 
-**Coins and paint:** solo races, time-trial medals and cups pay coins. Spend them on paint for your sled in the snowmobile picker.
+**Coins:** solo races, time-trial medals and cups pay coins. Spend them in the snowmobile picker on paint and on three upgrades (engine, turbo, skis; three levels each, solo races only). The hood stripe colour is free to choose.
+
+**After the flag:** the results screen offers a replay of the whole race, and while other riders are still out you can watch them finish (left and right switch rider).
 
 **Damage:** a hard smash takes a little off your top speed, and it adds up. A green repair box fixes the sled.
 
@@ -150,10 +152,15 @@ AI riders slow for bends on ice and move to the clear half of the road when a sl
 
 Most of this is there to look at; the deer and the avalanche are the exceptions.
 
-![Spectators at the start line on Pine Meadow](docs/screenshots/crowd.jpg)
+| | |
+|---|---|
+| ![Spectators at the start line](docs/screenshots/crowd.jpg) | ![A chairlift crossing the course](docs/screenshots/ski-lift.jpg) |
+| The crowd at the start | A chairlift over the road |
 
 - **Deer:** a few wander across the road on every track. Hit one and you're knocked back; it bolts.
-- **Crowd and cabins:** spectators cheer at the start line, and log cabins with lit windows sit in the hills.
+- **Crowd and cabins:** spectators line the start, waving, cheering, clapping and jumping, some with flags; you hear them as you pass. Log cabins with lit windows sit in the hills.
+- **Ski lift:** a chairlift crosses the valley over the road on every track.
+- **Dusk:** Frostbite Ridge, Highway Hop and Switchback Pass start at golden hour and end in the dark, with stars out and your headlight on.
 - **Weather:** every few minutes the fog closes in and the snow thickens, then it clears again.
 - **Avalanche:** on Glacier Run, Whiteout Summit and Widowmaker, an avalanche breaks loose behind the leaders partway down and chases the field at about 145 km/h. Anyone it catches is buried and restarts from a standstill.
 - **Steam train:** every track has a railway along the mountainside beside the course, with a locomotive pulling a tender and five carriages, smoke trailing from the chimney. It runs out of one rock tunnel and into another, then comes round again.
@@ -211,7 +218,7 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 - An online race cannot be paused. When the host leaves a race, it ends for everyone.
 - Some strict corporate or mobile networks block direct connections; joining will then time out.
 
-The room has a chat box, and each player's chosen snowmobile is shown to everyone. Snowball hits carry across the network.
+The host can run a cup for the room (choose Cup in the Mode switch): four races with points for everyone, moved on by the host. The room has a chat box, and each player's chosen snowmobile is shown to everyone. Snowball hits carry across the network.
 
 ## How it is put together
 
