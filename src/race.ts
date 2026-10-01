@@ -5,6 +5,7 @@ import type { World } from './world';
 import type { GridEntry } from './net';
 import { DIFFICULTIES, Difficulty } from './tracks';
 import { clamp, lerp } from './util';
+import { SLEDS, DEFAULT_SLED, sledById } from './sleds';
 
 export type RacePhase = 'waiting' | 'countdown' | 'racing' | 'finished';
 export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish';
@@ -31,18 +32,21 @@ export interface NetRace {
 }
 
 /** The grid for a solo race: five AI riders, then the player at the back. */
-export function soloGrid(attract: boolean): GridEntry[] {
+export function soloGrid(attract: boolean, sled = DEFAULT_SLED.id): GridEntry[] {
   const grid: GridEntry[] = [];
   for (let slot = 0; slot < RACERS; slot++) {
     const human = !attract && slot === RACERS - 1;
     grid.push(
       human
-        ? { kind: 'human', id: 'me', name: 'You', color: RIDER_COLORS[0] }
-        : { kind: 'ai', id: '', name: AI_NAMES[slot], color: RIDER_COLORS[RIDER_COLORS.length - 1 - (slot % 5)] },
+        ? { kind: 'human', id: 'me', name: 'You', color: RIDER_COLORS[0], sled }
+        : { kind: 'ai', id: '', name: AI_NAMES[slot], color: RIDER_COLORS[RIDER_COLORS.length - 1 - (slot % 5)], sled: aiSled(slot) },
     );
   }
   return grid;
 }
+
+/** AI riders turn up on a mix of models. */
+export const aiSled = (slot: number) => SLEDS[(slot * 2 + 1) % SLEDS.length].id;
 
 /** One race (or the menu's demo race): the grid, the clock and the rules. */
 export class Race {
@@ -70,12 +74,13 @@ export class Race {
     readonly difficulty: Difficulty,
     readonly attract: boolean,
     net: NetRace | null = null,
+    sled = DEFAULT_SLED.id,
   ) {
     const { track, def } = world;
     const cfg = DIFFICULTIES[difficulty];
     this.finishLine = track.startS + track.raceLength;
     this.online = !!net;
-    const grid = (this.grid = net ? net.grid : soloGrid(attract));
+    const grid = (this.grid = net ? net.grid : soloGrid(attract, sled));
     const localId = net ? net.localId : 'me';
     const simulateAI = !net || net.isHost;
     const aiTotal = grid.filter((g) => g.kind === 'ai').length;
@@ -84,7 +89,7 @@ export class Race {
 
     grid.forEach((entry, slot) => {
       const isPlayer = entry.kind === 'human' && entry.id === localId;
-      const sled = new Sled(entry.name, entry.color, isPlayer);
+      const sled = new Sled(entry.name, entry.color, isPlayer, sledById(entry.sled), isPlayer);
       sled.remote = entry.kind === 'human' ? !isPlayer : !simulateAI;
       const row = Math.floor(slot / 2);
       const side = slot % 2 ? -1 : 1;

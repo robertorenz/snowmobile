@@ -18,6 +18,8 @@ export const HOST_ID = 'host';
 export interface LobbyPlayer {
   id: string;
   name: string;
+  /** Id of the snowmobile they've chosen. */
+  sled: string;
 }
 
 export interface LobbyState {
@@ -33,6 +35,8 @@ export interface GridEntry {
   id: string;
   name: string;
   color: number;
+  /** Id of the snowmobile model; the standard one if absent. */
+  sled?: string;
 }
 
 export interface StartMsg {
@@ -46,7 +50,8 @@ export interface StartMsg {
 }
 
 type Msg =
-  | { t: 'hello'; name: string }
+  | { t: 'hello'; name: string; sled: string }
+  | { t: 'sled'; sled: string }
   | { t: 'lobby'; state: LobbyState; you: string }
   | { t: 'full' }
   | StartMsg
@@ -103,7 +108,7 @@ export class NetSession {
 
   // ---------- Creating and joining ----------
 
-  static host(name: string, track: number, difficulty: Difficulty): Promise<NetSession> {
+  static host(name: string, sled: string, track: number, difficulty: Difficulty): Promise<NetSession> {
     return new Promise((resolve, reject) => {
       let tries = 0;
       const attempt = () => {
@@ -113,7 +118,7 @@ export class NetSession {
         peer.on('open', () => {
           opened = true;
           const s = new NetSession(peer, true, code);
-          s.lobby = { players: [{ id: HOST_ID, name: cleanName(name) }], track, difficulty, racing: false };
+          s.lobby = { players: [{ id: HOST_ID, name: cleanName(name), sled }], track, difficulty, racing: false };
           peer.on('connection', (conn) => s.accept(conn));
           resolve(s);
         });
@@ -132,7 +137,7 @@ export class NetSession {
     });
   }
 
-  static join(code: string, name: string): Promise<NetSession> {
+  static join(code: string, name: string, sled: string): Promise<NetSession> {
     return new Promise((resolve, reject) => {
       const peer = new Peer();
       let done = false;
@@ -154,7 +159,7 @@ export class NetSession {
         const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
         const s = new NetSession(peer, false, code);
         s.hostConn = conn;
-        conn.on('open', () => conn.send({ t: 'hello', name: cleanName(name) } satisfies Msg));
+        conn.on('open', () => conn.send({ t: 'hello', name: cleanName(name), sled } satisfies Msg));
         conn.on('data', (data) => {
           const msg = data as Msg;
           if (!done && msg.t === 'full') return fail('That room is full.');
@@ -190,11 +195,16 @@ export class NetSession {
         }
         if (this.conns.has(id)) return;
         this.conns.set(id, conn);
-        this.lobby.players.push({ id, name: cleanName(msg.name) });
+        this.lobby.players.push({ id, name: cleanName(msg.name), sled: String(msg.sled ?? '').slice(0, 24) });
         this.sendLobby();
         this.onLobby();
       } else if (!this.conns.has(id)) {
         return;
+      } else if (msg.t === 'sled') {
+        const p = this.lobby.players.find((q) => q.id === id);
+        if (p) p.sled = String(msg.sled ?? '').slice(0, 24);
+        this.sendLobby();
+        this.onLobby();
       } else if (msg.t === 's') {
         this.onStates([msg.s], id);
       } else if (msg.t === 'ready') {
@@ -218,6 +228,14 @@ export class NetSession {
 
   private broadcast(msg: Msg) {
     for (const conn of this.conns.values()) if (conn.open) conn.send(msg);
+  }
+
+  /** Tell the room which snowmobile we've picked. */
+  setSled(sled: string) {
+    if (this.isHost) {
+      this.lobby.players[0].sled = sled;
+      this.sendLobby();
+    } else if (this.hostConn?.open) this.hostConn.send({ t: 'sled', sled } satisfies Msg);
   }
 
   /** Host: change the track or difficulty shown to everyone. */

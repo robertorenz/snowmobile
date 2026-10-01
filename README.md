@@ -49,6 +49,22 @@ A rear-view mirror at the top of the screen shows who is behind you.
 
 A gamepad also works: left stick steers, triggers are throttle and brake, A boosts, Start pauses.
 
+## Snowmobiles
+
+Pick one from the menu before racing (**Snowmobile → Change**). Each has its own shape and its own handling.
+
+| Model | Character |
+|---|---|
+| Trailblazer | The all-rounder |
+| Arrow | Long and low; the highest top speed, slow to accelerate, reluctant to turn |
+| Lynx | Short and light; quickest off the line and sharpest steering, lowest top speed |
+| Mammoth | Heavy, on wide skis; the most grip, and far less slowed by deep snow, rock and grass |
+| Drifter | Quick and eager with very little grip, so it slides through every bend |
+
+AI riders turn up on a mix of models but all drive to the same numbers, so the difficulty settings mean the same thing whatever they ride. Online, everyone sees each player's chosen model.
+
+![The snowmobile picker](docs/screenshots/sleds.jpg)
+
 ## Tracks and progression
 
 | Level | Track | Type | Setting |
@@ -161,6 +177,7 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 | `src/terrain.ts` | Heightmap terrain shaped around the track; snow shader with edge lines and start/finish chequers. |
 | `src/world.ts` | Scene for one track: trees, rocks, marker poles, gates, sky, snowfall, lighting. |
 | `src/ambient.ts` | Scenery with a life of its own: the train, clouds, birds, balloons and airliner. |
+| `src/sleds.ts` | The snowmobile models: proportions and handling numbers. Add a model here. |
 | `src/sled.ts`, `src/sledModel.ts` | Snowmobile physics (arcade handling, jumps, collisions, ice) and the model, including its working suspension: the body rides on springs and each ski follows the snow under it. |
 | `src/ai.ts` | AI rider: racing line, corner speed, traffic avoidance, boost, recovery. |
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |

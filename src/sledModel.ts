@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_SLED, SledShape } from './sleds';
 
 interface Strut {
   /** Mount on the sprung body, in body coordinates. */
@@ -43,11 +44,18 @@ function coilGeometry() {
 }
 
 /** Builds a snowmobile and rider from primitives. Faces +Z, origin on the snow. */
-export function buildSledModel(color: number, helmet: number): SledModel {
+export function buildSledModel(color: number, helmet: number, shape: SledShape = DEFAULT_SLED.shape): SledModel {
   const group = new THREE.Group();
   const body = new THREE.Group();
   const rider = new THREE.Group();
   group.add(body);
+  // The body is built at standard size and stretched to the model's proportions; the rider stays human-sized.
+  body.scale.set(shape.width, shape.height, shape.length);
+  rider.scale.set(1 / shape.width, 1 / shape.height, 1 / shape.length);
+  // Nose reach and droop, in the body's own (unstretched) units.
+  const nx = shape.nose / shape.length;
+  const tipY = 0.7 - 0.28 * shape.droop;
+  const hoodY = 0.86 - 0.1 * shape.droop;
 
   const base = new THREE.Color(color);
   const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.35 });
@@ -56,6 +64,7 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   const rubber = new THREE.MeshStandardMaterial({ color: 0x0c0e11, roughness: 0.95 });
   const metal = new THREE.MeshStandardMaterial({ color: 0xb4bdc6, roughness: 0.3, metalness: 0.85 });
   const trim = new THREE.MeshStandardMaterial({ color: 0xf3f8fc, roughness: 0.5 });
+  const stripeMat = new THREE.MeshStandardMaterial({ color: shape.stripe, roughness: 0.5 });
   // Springs stand out against the paint.
   const hue = base.getHSL({ h: 0, s: 0, l: 0 }).h;
   const reddish = hue < 0.06 || hue > 0.94;
@@ -101,8 +110,8 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   profile.lineTo(-0.25, 0.62);
   profile.quadraticCurveTo(-0.05, 0.66, 0.05, 0.8);
   profile.quadraticCurveTo(0.3, 0.93, 0.6, 0.88);
-  profile.quadraticCurveTo(1.05, 0.78, 1.3, 0.56);
-  profile.quadraticCurveTo(1.4, 0.46, 1.3, 0.36);
+  profile.quadraticCurveTo(1.05 + nx * 0.6, hoodY, 1.3 + nx, tipY + 0.1);
+  profile.quadraticCurveTo(1.4 + nx, tipY, 1.3 + nx, 0.36);
   profile.lineTo(0.95, 0.27);
   profile.lineTo(-0.2, 0.25);
   profile.closePath();
@@ -114,12 +123,12 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   const stripe = new THREE.Shape();
   stripe.moveTo(0.1, 0.84);
   stripe.quadraticCurveTo(0.3, 0.955, 0.6, 0.905);
-  stripe.quadraticCurveTo(1.03, 0.8, 1.26, 0.6);
-  stripe.lineTo(1.24, 0.58);
-  stripe.quadraticCurveTo(1.0, 0.77, 0.6, 0.875);
+  stripe.quadraticCurveTo(1.03 + nx * 0.6, hoodY + 0.02, 1.26 + nx, tipY + 0.14);
+  stripe.lineTo(1.24 + nx, tipY + 0.12);
+  stripe.quadraticCurveTo(1.0 + nx * 0.6, hoodY - 0.01, 0.6, 0.875);
   stripe.quadraticCurveTo(0.3, 0.925, 0.1, 0.81);
   stripe.closePath();
-  add(extrudeAcross(stripe, 0.16, 0), trim, 0, 0.012, 0);
+  add(extrudeAcross(stripe, 0.16, 0), stripeMat, 0, 0.012, 0);
   for (const side of [1, -1]) {
     for (let k = 0; k < 3; k++) add(new THREE.BoxGeometry(0.02, 0.035, 0.2), dark, side * 0.375, 0.66 - k * 0.06, 0.62 - k * 0.04);
     // Side panel flare and running board.
@@ -131,12 +140,12 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   }
 
   // Headlight pod and tail light.
-  add(new THREE.BoxGeometry(0.44, 0.13, 0.08), dark, 0, 0.6, 1.27).rotation.x = -0.5;
+  add(new THREE.BoxGeometry(0.44, 0.13, 0.08), dark, 0, tipY + 0.14, 1.27 + nx).rotation.x = -0.5;
   const lamp = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2c4, emissiveIntensity: 2.2 });
-  for (const side of [1, -1]) add(new THREE.BoxGeometry(0.15, 0.07, 0.05), lamp, side * 0.11, 0.6, 1.3).rotation.x = -0.5;
+  for (const side of [1, -1]) add(new THREE.BoxGeometry(0.15, 0.07, 0.05), lamp, side * 0.11, tipY + 0.14, 1.3 + nx).rotation.x = -0.5;
   add(new THREE.BoxGeometry(0.42, 0.07, 0.04), new THREE.MeshStandardMaterial({ color: 0x8a1016, emissive: 0xff2a2a, emissiveIntensity: 1.6 }), 0, 0.55, -1.39);
   // Front bumper.
-  const bumper = add(new THREE.CylinderGeometry(0.022, 0.022, 0.6, 6), metal, 0, 0.42, 1.4);
+  const bumper = add(new THREE.CylinderGeometry(0.022, 0.022, 0.6, 6), metal, 0, 0.42, 1.4 + nx);
   bumper.rotation.z = Math.PI / 2;
 
   // Windshield: a tinted curved screen.
@@ -148,6 +157,8 @@ export function buildSledModel(color: number, helmet: number): SledModel {
     0.12,
   );
   shield.rotation.x = -0.38;
+  shield.scale.y = shape.windshield;
+  shield.position.y += 0.23 * (shape.windshield - 1);
   shield.castShadow = false;
 
   // Handlebars, grips and hand guards.
@@ -167,6 +178,12 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   for (const side of [1, -1]) limb([side * 0.24, 0.62, -1.12], [side * 0.24, 0.7, -1.4], 0.016, metal, body);
   limb([-0.24, 0.7, -1.4], [0.24, 0.7, -1.4], 0.016, metal, body);
   add(new THREE.BoxGeometry(0.56, 0.3, 0.03), rubber, 0, 0.36, -1.44).rotation.x = 0.3;
+
+  if (shape.cargo) {
+    add(new THREE.BoxGeometry(0.62, 0.34, 0.5), dark, 0, 0.9, -1.22);
+    add(new THREE.BoxGeometry(0.66, 0.05, 0.54), paint, 0, 1.09, -1.22);
+  }
+  if (shape.fin) add(new THREE.BoxGeometry(0.04, 0.34, 0.5), paint, 0, 0.92, -1.2).rotation.x = -0.35;
 
   // ---------- Rider ----------
 
@@ -197,14 +214,17 @@ export function buildSledModel(color: number, helmet: number): SledModel {
   loop.absarc(-0.2, 0.15, 0.15, -Math.PI / 2, Math.PI / 2, false);
   loop.lineTo(-1.2, 0.3);
   loop.absarc(-1.2, 0.15, 0.15, Math.PI / 2, Math.PI * 1.5, false);
-  add(extrudeAcross(loop, 0.38, 0), rubber, 0, 0, 0, group);
+  const drive = new THREE.Group();
+  drive.scale.set(shape.width, 1, shape.length);
+  group.add(drive);
+  add(extrudeAcross(loop, 0.38, 0), rubber, 0, 0, 0, drive);
   // Lugs give the belt some tooth.
-  for (let k = 0; k < 9; k++) add(new THREE.BoxGeometry(0.4, 0.035, 0.05), dark, 0, 0.005, -0.25 - k * 0.115, group);
+  for (let k = 0; k < 9; k++) add(new THREE.BoxGeometry(0.4, 0.035, 0.05), dark, 0, 0.005, -0.25 - k * 0.115, drive);
   for (const side of [1, -1]) {
     for (const z of [-0.3, -0.7, -1.1]) {
-      add(new THREE.CylinderGeometry(0.085, 0.085, 0.03, 12), metal, side * 0.205, 0.14, z, group).rotation.z = Math.PI / 2;
+      add(new THREE.CylinderGeometry(0.085, 0.085, 0.03, 12), metal, side * 0.205, 0.14, z, drive).rotation.z = Math.PI / 2;
     }
-    limb([side * 0.21, 0.14, -0.25], [side * 0.21, 0.14, -1.15], 0.018, metal, group);
+    limb([side * 0.21, 0.14, -0.25], [side * 0.21, 0.14, -1.15], 0.018, metal, drive);
   }
 
   // ---------- Unsprung: skis ----------
@@ -236,9 +256,12 @@ export function buildSledModel(color: number, helmet: number): SledModel {
 
   [1, -1].forEach((side, i) => {
     const carrier = new THREE.Group();
-    carrier.position.set(side * 0.6, 0, 0.85);
+    const skiX = shape.stance;
+    const skiZ = 0.85 * shape.length;
+    carrier.position.set(side * skiX, 0, skiZ);
     const pivot = new THREE.Group();
     carrier.add(pivot);
+    pivot.scale.x = shape.ski;
     // Ski: flat runner, upswept tip in two steps, a keel underneath and a grab loop.
     add(new THREE.BoxGeometry(0.16, 0.035, 1.2), paint, 0, 0.03, -0.05, pivot);
     add(new THREE.BoxGeometry(0.16, 0.035, 0.26), paint, 0, 0.065, 0.66, pivot).rotation.x = -0.3;
@@ -252,11 +275,12 @@ export function buildSledModel(color: number, helmet: number): SledModel {
     skiCarriers.push(carrier);
     skis.push(pivot);
 
-    arm([side * 0.26, 0.31, 0.85], [side * 0.54, 0.1, 0.85], i);
-    arm([side * 0.26, 0.46, 0.82], [side * 0.54, 0.3, 0.85], i);
-    shock([side * 0.4, 0.7, 0.84], [side * 0.5, 0.14, 0.86], i);
+    // Tops are in the body's own units (it gets stretched); bottoms are where the ski actually is.
+    arm([side * 0.26, 0.31, 0.85], [side * (skiX - 0.06), 0.1, skiZ], i);
+    arm([side * 0.26, 0.46, 0.82], [side * (skiX - 0.06), 0.3, skiZ], i);
+    shock([side * 0.4, 0.7, 0.84], [side * (skiX - 0.1), 0.14, skiZ + 0.01], i);
     // Rear coil-over, from the tunnel down to the track frame.
-    shock([side * 0.29, 0.6, -0.78], [side * 0.26, 0.17, -1.08], -1);
+    shock([side * 0.29, 0.6, -0.78], [side * 0.26 * shape.width, 0.17, -1.08 * shape.length], -1);
   });
 
   const model: SledModel = { group, body, rider, skiCarriers, skis, struts };
@@ -286,7 +310,7 @@ export function poseSledModel(
   for (const ski of m.skis) ski.rotation.y = steer * 0.35;
 
   for (const s of m.struts) {
-    _a.copy(s.top).applyEuler(m.body.rotation);
+    _a.copy(s.top).multiply(m.body.scale).applyEuler(m.body.rotation);
     _a.y += heave;
     _b.copy(s.bottom);
     if (s.ski >= 0) _b.y += s.ski === 0 ? skiLeft : skiRight;

@@ -3,6 +3,7 @@ import { trackOutline } from './track';
 import { SaveData, resultKey } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
+import { SLEDS, sledById } from './sleds';
 
 export interface UICallbacks {
   onSelectTrack(index: number): void;
@@ -13,6 +14,9 @@ export interface UICallbacks {
   onQuit(): void;
   onNext(): void;
   onToggleMute(): void;
+  onSled(id: string): void;
+  /** Picture of a snowmobile model, as an image URL. */
+  sledThumb(id: string): string;
   /** A switch in the settings dialog was flipped. */
   onSetting(key: SettingKey, on: boolean): void;
   /** Create or join an online room. Rejects with a message to show the player. */
@@ -207,6 +211,7 @@ export class UI {
     }).join('');
 
     const sel = TRACKS[this.selected];
+    const sled = sledById(save.sled);
     const roomBox = room
       ? `
         <div class="room">
@@ -248,6 +253,12 @@ export class UI {
         <div class="menu-actions">
           ${startButton}
         </div>
+        <div class="section-label">Snowmobile</div>
+        <button class="sled-row" data-act="sled">
+          <img src="${this.cb.sledThumb(sled.id)}" alt="" />
+          <span class="sled-text"><b>${sled.name}</b><small>${sled.blurb}</small></span>
+          <span class="sled-change">Change</span>
+        </button>
         <div class="section-label">${room ? 'AI difficulty' : 'Difficulty'}</div>
         <div class="segmented">${diffButtons}</div>
         <p class="diff-blurb">${DIFFICULTIES[difficulty].blurb}</p>
@@ -267,6 +278,7 @@ export class UI {
       drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 4.5, 11);
     });
     this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
+    this.menu.querySelector('[data-act="sled"]')?.addEventListener('click', () => this.showSleds());
     this.menu.querySelector('[data-act="leave"]')?.addEventListener('click', () => this.cb.onLeaveRoom());
     const copy = this.menu.querySelector<HTMLButtonElement>('[data-act="copy"]');
     copy?.addEventListener('click', () => {
@@ -433,6 +445,40 @@ export class UI {
       quit: () => this.cb.onQuit(),
       help: () => this.showHelp(() => this.showPause(online)),
     });
+  }
+
+  /** The snowmobile picker: one card per model, with its picture and how it drives. */
+  showSleds() {
+    // Bars run from half the standard figure (empty) to one and a half times it (full).
+    const bar = (label: string, v: number) =>
+      `<div class="stat"><span>${label}</span><div class="stat-bar"><div style="width:${Math.round(Math.max(0.06, Math.min(1, v - 0.5)) * 100)}%"></div></div></div>`;
+    const cards = SLEDS.map(
+      (s) => `
+      <button class="sled-card ${s.id === this.save.sled ? 'selected' : ''}" data-sled="${s.id}">
+        <img src="${this.cb.sledThumb(s.id)}" alt="" />
+        <span class="sled-name">${s.name}</span>
+        <span class="sled-blurb">${s.blurb}</span>
+        ${bar('Top speed', s.speed)}${bar('Acceleration', s.accel)}${bar('Steering', s.turn)}${bar('Grip', s.grip)}
+      </button>`,
+    ).join('');
+    const m = this.openModal(
+      `
+      <h2>Choose your snowmobile</h2>
+      <p class="modal-lead">Each drives differently. Low grip means it slides; the Mammoth also shrugs off deep snow, rock and grass.</p>
+      <div class="sled-grid">${cards}</div>
+      <div class="modal-actions"><button class="btn ghost" data-act="close">Close</button></div>`,
+      true,
+    );
+    m.querySelector('.modal')!.classList.add('xwide');
+    m.querySelectorAll<HTMLButtonElement>('[data-sled]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.save.sled = b.dataset.sled!;
+        this.cb.onSled(b.dataset.sled!);
+        this.closeModal();
+        this.renderMenu();
+      }),
+    );
+    this.bind(m, { close: () => this.closeModal() });
   }
 
   showSettings() {

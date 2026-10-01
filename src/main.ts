@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import './style.css';
 import { TRACKS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
 import { World } from './world';
-import { Race, NetRace, RACERS, AI_NAMES, RIDER_COLORS } from './race';
+import { Race, NetRace, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
+import { SLEDS, sledById } from './sleds';
+import { buildSledModel } from './sledModel';
 import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
 import { SLED, Sled } from './sled';
 import { Input } from './input';
@@ -89,6 +91,12 @@ class Game {
       onQuit: () => void this.toMenu(),
       onNext: () => void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1)),
       onToggleMute: () => this.toggleMute(),
+      onSled: (id) => {
+        this.save.sled = sledById(id).id;
+        writeSave(this.save);
+        this.net?.setSled(this.save.sled);
+      },
+      sledThumb: (id) => this.sledThumb(id),
       onSetting: (key, on) => {
         if (key === 'sound') {
           if (on === this.save.muted) this.toggleMute();
@@ -180,7 +188,7 @@ class Game {
       const world = this.world!;
       this.trackIndex = index;
       this.renderer.toneMappingExposure = world.theme.exposure;
-      this.race = new Race(world, difficulty, attract, net);
+      this.race = new Race(world, difficulty, attract, net, this.save.sled);
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
       if (world.theme.night) this.headlight = addHeadlight(lit);
@@ -237,6 +245,59 @@ class Game {
     else this.ui.closeModal();
   }
 
+  private thumbs = new Map<string, string>();
+
+  /** A small picture of a snowmobile model, for the menu. Rendered once and kept. */
+  private sledThumb(id: string) {
+    const cached = this.thumbs.get(id);
+    if (cached) return cached;
+    const W = 360;
+    const H = 210;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x12283d);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x6f8499, 1.9));
+    const key = new THREE.DirectionalLight(0xffffff, 2.6);
+    key.position.set(3, 6, 4);
+    scene.add(key);
+    const model = buildSledModel(RIDER_COLORS[0], 0xf3f8fc, sledById(id).shape);
+    scene.add(model.group);
+    const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50);
+    cam.position.set(4.4, 2.1, 3.6);
+    cam.lookAt(0, 0.62, -0.05);
+    const target = new THREE.WebGLRenderTarget(W, H);
+    const r = this.renderer;
+    r.setRenderTarget(target);
+    r.render(scene, cam);
+    const px = new Uint8Array(W * H * 4);
+    r.readRenderTargetPixels(target, 0, 0, W, H, px);
+    r.setRenderTarget(null);
+    target.dispose();
+    model.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const mat = mesh.material;
+      if (mat) for (const one of Array.isArray(mat) ? mat : [mat]) one.dispose();
+    });
+    // The target holds linear light and is upside down: convert to display values the right way up.
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+    const img = ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const s = ((H - 1 - y) * W + x) * 4;
+        const d = (y * W + x) * 4;
+        for (let c = 0; c < 3; c++) img.data[d + c] = Math.pow(Math.min(1, px[s + c] / 255), 1 / 2.2) * 255;
+        img.data[d + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const url = canvas.toDataURL('image/jpeg', 0.9);
+    this.thumbs.set(id, url);
+    return url;
+  }
+
   /** Resolves once no track is being loaded. */
   private async whenIdle() {
     while (this.busy) await new Promise((r) => setTimeout(r, 50));
@@ -268,8 +329,8 @@ class Game {
     writeSave(this.save);
     const net =
       action === 'host'
-        ? await NetSession.host(rider, this.ui.selectedTrack, this.save.difficulty)
-        : await NetSession.join(cleanCode(code), rider);
+        ? await NetSession.host(rider, this.save.sled, this.ui.selectedTrack, this.save.difficulty)
+        : await NetSession.join(cleanCode(code), rider, this.save.sled);
     this.net?.leave();
     this.net = net;
 
@@ -318,9 +379,9 @@ class Game {
     const humans = net.lobby.players.slice(0, RACERS);
     const grid: GridEntry[] = [];
     for (let k = 0; k < RACERS - humans.length; k++) {
-      grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k] });
+      grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k], sled: aiSled(k) });
     }
-    humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i] }));
+    humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i], sled: p.sled }));
     const msg: StartMsg = { t: 'start', track: this.ui.selectedTrack, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces } };
     net.hostStart(msg);
     void this.startOnline(msg);

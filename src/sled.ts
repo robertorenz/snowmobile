@@ -3,6 +3,7 @@ import { buildSledModel, poseSledModel, SledModel } from './sledModel';
 import type { World } from './world';
 import { clamp, lerp, wrapAngle } from './util';
 import { GATE_HEIGHT, ICE, SHALE, ROCK, GRASS } from './track';
+import { DEFAULT_SLED, SledSpec } from './sleds';
 
 /** A sled's state as sent between computers in an online race. */
 export interface SledNet {
@@ -152,12 +153,18 @@ export class Sled {
     this.syncModel(dt);
   }
 
+  /** Handling multipliers in force. AI riders borrow a model's looks but drive to the standard numbers, so difficulty stays as tuned. */
+  private readonly drive: SledSpec;
+
   constructor(
     readonly name: string,
     readonly color: number,
     readonly isPlayer: boolean,
+    readonly spec: SledSpec = DEFAULT_SLED,
+    ownStats = isPlayer,
   ) {
-    this.model = buildSledModel(color, isPlayer ? 0xf3f8fc : 0x20303f);
+    this.drive = ownStats ? spec : DEFAULT_SLED;
+    this.model = buildSledModel(color, isPlayer ? 0xf3f8fc : 0x20303f, spec.shape);
   }
 
   get speed() {
@@ -223,7 +230,8 @@ export class Sled {
     let vf = vel.x * fx + vel.z * fz;
     const authority = this.grounded ? 1 : 0.3;
     const lowSpeed = Math.min(1, Math.abs(vf) / 5);
-    const rate = Math.min(P.turnMax, P.aLat / Math.max(Math.abs(vf), 1));
+    const D = this.drive;
+    const rate = Math.min(P.turnMax, P.aLat / Math.max(Math.abs(vf), 1)) * D.turn;
     this.yaw += rate * inp.steer * lowSpeed * authority * (vf < -0.5 ? -1 : 1) * dt;
 
     fx = Math.sin(this.yaw);
@@ -245,10 +253,10 @@ export class Sled {
       const onIce = lakeIce || patch === ICE;
       this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
-      const rough = patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1;
-      const cap = P.maxSpeed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? 0.58 : rough);
+      const rough = 1 - (1 - (patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1)) * D.rough;
+      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough);
       const bite = onIce ? P.iceTraction : 1;
-      const acc = P.accel * (this.boosting ? P.boostAccel : 1) * bite;
+      const acc = P.accel * D.accel * (this.boosting ? P.boostAccel : 1) * bite;
 
       if (inp.throttle > 0) vf += inp.throttle * acc * (1 - vf / cap) * dt;
       if (inp.brake > 0) {
@@ -274,7 +282,7 @@ export class Sled {
       vf += (gx * fx + gz * fz) * k * dt;
       vl += (gx * lx + gz * lz) * k * dt;
 
-      vl *= Math.exp(-(onIce ? P.iceGrip : this.offTrack ? 4 : P.grip) * dt);
+      vl *= Math.exp(-(onIce ? P.iceGrip : this.offTrack ? 4 : P.grip) * D.grip * dt);
       vel.x = fx * vf + lx * vl;
       vel.z = fz * vf + lz * vl;
     } else {
