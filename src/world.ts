@@ -428,6 +428,8 @@ export class World {
         );
     };
     const planted = species.map(() => [] as THREE.Matrix4[]);
+    // Trees proper come first in the list; undergrowth (bushes, stumps, fallen logs) after.
+    const tall = species.findIndex((sp) => sp.low);
     const lean = new THREE.Euler();
     let placed = 0;
     let tries = 0;
@@ -445,7 +447,7 @@ export class World {
       // Pick a species by its share of the forest.
       let pick = rnd();
       let kind = 0;
-      while (kind < species.length - 1 && pick > species[kind].share) pick -= species[kind++].share;
+      while (kind < tall - 1 && pick > species[kind].share) pick -= species[kind++].share;
       const scale = 0.9 + rnd() * 1.15;
       // No tree grows dead straight.
       q.setFromEuler(lean.set((rnd() - 0.5) * 0.12, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.12));
@@ -455,6 +457,27 @@ export class World {
       placed++;
       if (d < 60) this.colliders.add({ x, z, r: 0.35 * scale });
     }
+    // Undergrowth: thick along the edge of the course, thinning into the forest. Nothing to crash into.
+    let low = 0;
+    tries = 0;
+    const lowWanted = Math.round(def.trees * 0.45);
+    while (low < lowWanted && tries++ < lowWanted * 30) {
+      const x = terrain.minX + rnd() * terrain.sizeX;
+      const z = terrain.minZ + rnd() * terrain.sizeZ;
+      const d = terrain.edgeAt(x, z);
+      if (d < 2.2 || d > 70 || (d > 22 && rnd() < 0.7) || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z) || nearFall(x, z)) continue;
+      terrain.normal(x, z, v);
+      if (v.y < 0.8) continue;
+      let pick = rnd();
+      let kind = tall;
+      while (kind < species.length - 1 && pick > species[kind].share) pick -= species[kind++].share;
+      const scale = 0.7 + rnd() * 0.9;
+      q.setFromEuler(lean.set(0, rnd() * Math.PI * 2, 0));
+      s.set(scale, scale * (0.8 + rnd() * 0.4), scale);
+      v.set(x, terrain.height(x, z) - 0.05, z);
+      planted[kind].push(new THREE.Matrix4().compose(v, q, s));
+      low++;
+    }
     const shade = new THREE.Color();
     species.forEach((sp, k) => {
       if (!planted[k].length) return;
@@ -462,8 +485,9 @@ export class World {
       planted[k].forEach((mat, j) => {
         trees.setMatrixAt(j, mat);
         // Lighter or darker, a touch warmer or cooler, but always a green: red and blue never exceed it.
-        const g = 0.84 + rnd() * 0.3;
-        trees.setColorAt(j, shade.setRGB(g * (0.9 + rnd() * 0.1), g, g * (0.88 + rnd() * 0.1)));
+        // Undergrowth keeps its own colours: a green cast would spoil snow and berries.
+        const g = sp.low ? 1 : 0.84 + rnd() * 0.3;
+        trees.setColorAt(j, sp.low ? shade.setRGB(1, 1, 1) : shade.setRGB(g * (0.9 + rnd() * 0.1), g, g * (0.88 + rnd() * 0.1)));
       });
       trees.castShadow = true;
       trees.receiveShadow = true;
@@ -1451,6 +1475,8 @@ function stripeTexture() {
 /** One kind of tree, and how much of the forest it makes up. */
 interface TreeSpecies {
   name: string;
+  /** Undergrowth rather than a tree: planted by its own rules, and not solid. */
+  low?: boolean;
   geo: THREE.BufferGeometry;
   share: number;
 }
@@ -1709,6 +1735,110 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
     return m.build();
   };
 
+  /** Maple: a short thick trunk and a wide, rounded crown. */
+  const maple = () => {
+    const m = mesher();
+    const wood = new THREE.Color(0x4d3d31);
+    const leaf = new THREE.Color(0x3f7a34);
+    m.stick([0, 0, 0], [0, 1.9, 0], 0.36, 0.27, wood, wood, 6);
+    grow(m, [0, 1.7, 0], up, 1.3, 0.24, 2, {
+      kids: 4,
+      spread: 0.85,
+      shrink: 0.85,
+      lift: 0.22,
+      wood,
+      tip: meadow ? (p, size) => m.clump([p[0], p[1] + 0.25, p[2]], 1.0 + size * 0.45, 0.8, leaf) : undefined,
+    });
+    if (meadow) m.clump([0, 4.6, 0], 1.7, 0.75, leaf);
+    return m.build();
+  };
+
+  /** Aspen: a tall, thin, pale trunk with a small crown right at the top. */
+  const aspen = () => {
+    const m = mesher();
+    const pale = new THREE.Color(0xc9cdb8);
+    const twig = new THREE.Color(0x6a6658);
+    const leaf = new THREE.Color(0x9ac44e);
+    const h = 7.2;
+    m.stick([0, 0, 0], [0, h, 0], 0.14, 0.04, pale, pale, 5);
+    for (let k = 0; k < 6; k++) {
+      const y = 4.3 + (k / 5) * 2.6;
+      const a = k * 2.2 + rnd();
+      const dir = new THREE.Vector3(Math.cos(a) * 0.55, 0.83, Math.sin(a) * 0.55).normalize();
+      grow(m, [0, y, 0], dir, 0.95 - k * 0.08, 0.04, 1, {
+        kids: 2,
+        spread: 0.5,
+        shrink: 0.65,
+        lift: 0.1,
+        wood: twig,
+        tip: meadow ? (p) => m.clump(p, 0.48 + rnd() * 0.18, 0.9, leaf) : undefined,
+      });
+    }
+    return m.build();
+  };
+
+  /** Cedar: a dense, narrow column of foliage from the ground up. */
+  const cedar = () => conifer({ tiers: 9, base: 0.95, top: 0.22, height: 6.4, bare: 0.15, droop: 0.12, green: frosted ? 0x2c5c3c : 0x3d7a3a, overlap: 2.3, boughs: 9, snow: 0.7 });
+
+  /** A dead tree: a grey, broken trunk with a few stubs of branch left. */
+  const snag = () => {
+    const m = mesher();
+    const grey = new THREE.Color(0x77726a);
+    m.stick([0, 0, 0], [0.15, 4.6, 0.1], 0.26, 0.13, grey, grey, 6);
+    for (let k = 0; k < 5; k++) {
+      const a = k * 1.9 + rnd();
+      const y = 1.6 + k * 0.6;
+      const dir = new THREE.Vector3(Math.cos(a), 0.25 + rnd() * 0.4, Math.sin(a)).normalize();
+      grow(m, [0.05 * k * 0.6, y, 0.03 * k], dir, 0.7 + rnd() * 0.7, 0.07, k % 2, { kids: 1, spread: 0.6, shrink: 0.6, lift: 0, wood: grey });
+    }
+    return m.build();
+  };
+
+  // ----- Undergrowth -----
+
+  /** A bush: a few lumps of leaf in spring; in winter, a mound of snow with twigs poking out. */
+  const bush = (berries: boolean) => {
+    const m = mesher();
+    const twig = new THREE.Color(0x5a4636);
+    const leaf = new THREE.Color(berries ? 0x4d7f33 : 0x5b8f3a);
+    const body = frosted && !meadow ? frost.clone().multiplyScalar(0.97) : leaf;
+    for (let k = 0; k < 3; k++) {
+      const a = k * 2.1 + rnd();
+      const off = k === 0 ? 0 : 0.45;
+      m.clump([Math.cos(a) * off, 0.38 + (k === 0 ? 0.12 : 0), Math.sin(a) * off], 0.5 + rnd() * 0.2, 0.7, body);
+    }
+    for (let k = 0; k < 5; k++) {
+      const a = k * 1.3 + rnd();
+      const tip: V3 = [Math.cos(a) * 0.55, 0.85 + rnd() * 0.35, Math.sin(a) * 0.55];
+      m.stick([Math.cos(a) * 0.15, 0.2, Math.sin(a) * 0.15], tip, 0.025, 0.01, twig, twig, 3);
+      // Winter berries, the one spot of colour in the snow.
+      if (berries) m.clump(tip, 0.075, 1, new THREE.Color(0xc62828));
+    }
+    return m.build();
+  };
+
+  /** A tree stump, snow-capped in winter. */
+  const stump = () => {
+    const m = mesher();
+    const wood = new THREE.Color(0x5a4636);
+    const cut = frosted && !meadow ? frost : new THREE.Color(0xc9a878);
+    m.stick([0, 0, 0], [0, 0.55, 0], 0.36, 0.3, wood, wood, 7);
+    m.stick([0, 0.55, 0], [0, 0.66, 0], 0.3, 0.26, cut, cut, 7);
+    m.stick([0, 0.66, 0], [0, 0.67, 0], 0.26, 0.001, cut, cut, 7);
+    return m.build();
+  };
+
+  /** A fallen trunk lying in the undergrowth. */
+  const deadfall = () => {
+    const m = mesher();
+    const wood = new THREE.Color(0x4f3d2f);
+    const top = frosted && !meadow ? wood.clone().lerp(frost, 0.7) : new THREE.Color(0x5f7a3a);
+    m.stick([-2.2, 0.22, 0], [2.2, 0.3, 0.3], 0.26, 0.17, wood, top, 6);
+    m.stick([0.6, 0.3, 0.05], [1.0, 1.0, -0.5], 0.06, 0.02, wood, wood, 3);
+    m.stick([-0.9, 0.28, 0], [-1.2, 0.85, 0.5], 0.06, 0.02, wood, wood, 3);
+    return m.build();
+  };
+
   const species: TreeSpecies[] = [
     { name: 'spruce', geo: conifer({ tiers: 6, base: 1.75, top: 0.32, height: 6.2, bare: 0.5, droop: 0.34, green: frosted ? 0x1f4a38 : 0x2f6a3d }), share: 0.2 },
     // Douglas fir: the giant of the forest. Narrow for its height, dark, boughs hanging long.
@@ -1719,11 +1849,34 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
     { name: 'tamarack', geo: tamarack(), share: 0.12 },
     { name: 'elm', geo: elm(), share: 0.08 },
     { name: 'birch', geo: birch(), share: 0.1 },
+    { name: 'cedar', geo: cedar(), share: 0.1 },
+    { name: 'maple', geo: maple(), share: 0.05 },
+    { name: 'aspen', geo: aspen(), share: 0.06 },
+    { name: 'snag', geo: snag(), share: 0.03 },
+    // Undergrowth: shares are of the undergrowth, not of the trees.
+    { name: 'bush', geo: bush(false), share: 0.5, low: true },
+    { name: 'berry bush', geo: bush(true), share: 0.22, low: true },
+    { name: 'stump', geo: stump(), share: 0.16, low: true },
+    { name: 'deadfall', geo: deadfall(), share: 0.12, low: true },
   ];
+  // Eleven kinds of tree now: scale the first seven down so the shares still add up to one.
+  for (const sp of species.slice(0, 7)) sp.share *= 0.76;
   if (meadow) {
     // Down in the valley in spring the broadleaf trees take over.
-    const shares: Record<string, number> = { spruce: 0.13, 'douglas fir': 0.13, 'white pine': 0.14, 'young fir': 0.08, tamarack: 0.14, elm: 0.2, birch: 0.18 };
-    for (const sp of species) sp.share = shares[sp.name];
+    const shares: Record<string, number> = {
+      spruce: 0.09,
+      'douglas fir': 0.09,
+      'white pine': 0.1,
+      'young fir': 0.06,
+      tamarack: 0.1,
+      elm: 0.13,
+      birch: 0.12,
+      cedar: 0.07,
+      maple: 0.12,
+      aspen: 0.1,
+      snag: 0.02,
+    };
+    for (const sp of species) if (!sp.low) sp.share = shares[sp.name];
   }
   return species;
 }
