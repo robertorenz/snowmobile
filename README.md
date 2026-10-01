@@ -14,6 +14,8 @@ A 3D snowmobile racing game that runs in the browser. Race five AI riders to the
 | Mirror Lake: fast, slippery ice | Aurora Pass: night racing by headlight |
 | ![A waterfall beside Thaw Meadow](docs/screenshots/waterfall.jpg) | ![Rock outcrops and a boulder on the course at Switchback Pass](docs/screenshots/rocks.jpg) |
 | Waterfalls and rock outcrops line the courses | Boulders and fallen logs block parts of the road |
+| ![The first plunge on Glacier Run](docs/screenshots/plunge.jpg) | |
+| A plunge: a 44% drop into a slalom | |
 
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All models, terrain and sound are generated in code — there are no asset files.
 
@@ -66,6 +68,10 @@ Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to
 ### Scenery
 
 The ground beside each course is broken by rock ridges and clusters of outcrops (snow-capped in winter), and most tracks have a waterfall or two. Outcrops and waterfalls close to the course are solid. The circuits also climb and drop far more than their layouts suggest: Frostbite Ridge rises about 110 m and Switchback Pass about 190 m, with single hills of up to 25 m on top of that. Slopes pull hard: a steep climb can drag a sled down to 60 km/h, and the descents push it past its normal top speed.
+
+### Plunges
+
+Eleven of the twelve tracks (all but Mirror Lake) have at least one plunge: a drop of 24 to 75 m in under 200 m, with grades of 40 to 60%. On eight of them the drop is bent into a slalom with bends as tight as a 20 m radius, so it cannot be taken flat out: brake, swerve, and pick a line. On the circuits each plunge is paid for by an equally steep climb elsewhere on the lap. The camera tips down into drops and up at climbs so you can see what is coming.
 
 ### Crossings
 
@@ -121,4 +127,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), `elevation` (multiplies the climbs), `rugged` and `crags` (rock ridges and outcrops), `waterfalls`, a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), `elevation` (multiplies the climbs), `plunges` and `slaloms` (steep drops and the weave through them), `rugged` and `crags` (rock ridges and outcrops), `waterfalls`, a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

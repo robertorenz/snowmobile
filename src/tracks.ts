@@ -55,6 +55,13 @@ export interface TrackDef {
   obstacles?: number;
   /** A river running beside part of the course. side: 1 = left of travel, -1 = right; gap is from the track edge to mid-river. */
   river?: { from: number; to: number; side: 1 | -1; gap: number; width: number };
+  /**
+   * Steep drops. On a circuit each needs a climb (climbAt, climbLength) to win the height back;
+   * on a point-to-point track the course simply ends up lower.
+   */
+  plunges?: { at: number; length: number; height: number; climbAt?: number; climbLength?: number }[];
+  /** Stretches bent into a slalom: amp metres either side of the old line, waves full left-right cycles. */
+  slaloms?: { at: number; length: number; amp: number; waves: number }[];
   /** Multiplies the course's climbs and drops (measured from the start line). */
   elevation?: number;
   /** How craggy the ground beside the course is: 0 smooth, 1 walled in by rock ridges. */
@@ -196,6 +203,8 @@ const MEADOW: Theme = {
 export const TRACKS: TrackDef[] = [
   {
     id: 'pine-meadow',
+    plunges: [{ at: 0.62, length: 150, height: 24, climbAt: 0.08, climbLength: 190 }],
+    slaloms: [{ at: 0.61, length: 190, amp: 8, waves: 1.5 }],
     elevation: 2.2,
     rugged: 0.35,
     crags: 50,
@@ -244,6 +253,8 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'frostbite-ridge',
+    plunges: [{ at: 0.66, length: 190, height: 55, climbAt: 0.07, climbLength: 210 }],
+    slaloms: [{ at: 0.65, length: 240, amp: 11, waves: 2 }],
     elevation: 2.8,
     rugged: 0.8,
     crags: 90,
@@ -299,6 +310,14 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'glacier-run',
+    plunges: [
+      { at: 0.24, length: 190, height: 65 },
+      { at: 0.6, length: 200, height: 75 },
+    ],
+    slaloms: [
+      { at: 0.23, length: 250, amp: 11, waves: 2 },
+      { at: 0.59, length: 260, amp: 12, waves: 2.5 },
+    ],
     elevation: 1.35,
     rugged: 0.9,
     crags: 110,
@@ -359,6 +378,8 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'aurora-pass',
+    plunges: [{ at: 0.62, length: 170, height: 42, climbAt: 0.28, climbLength: 200 }],
+    slaloms: [{ at: 0.61, length: 220, amp: 10, waves: 2 }],
     elevation: 2.2,
     rugged: 0.7,
     crags: 90,
@@ -418,6 +439,16 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'whiteout-summit',
+    plunges: [
+      { at: 0.16, length: 190, height: 65 },
+      { at: 0.5, length: 200, height: 75 },
+      { at: 0.8, length: 190, height: 65 },
+    ],
+    slaloms: [
+      { at: 0.155, length: 250, amp: 11, waves: 2 },
+      { at: 0.495, length: 260, amp: 12, waves: 2.5 },
+      { at: 0.795, length: 250, amp: 11, waves: 2 },
+    ],
     elevation: 1.35,
     rugged: 1,
     crags: 120,
@@ -488,6 +519,8 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'thaw-meadow',
+    plunges: [{ at: 0.64, length: 170, height: 40, climbAt: 0.46, climbLength: 180 }],
+    slaloms: [{ at: 0.63, length: 220, amp: 10, waves: 2 }],
     elevation: 2.5,
     rugged: 0.45,
     crags: 60,
@@ -588,6 +621,8 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'switchback-pass',
+    plunges: [{ at: 0.72, length: 200, height: 65, climbAt: 0.26, climbLength: 220 }],
+    slaloms: [{ at: 0.71, length: 250, amp: 11, waves: 2.5 }],
     elevation: 2.1,
     rugged: 1,
     crags: 110,
@@ -643,6 +678,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'river-leap',
+    plunges: [{ at: 0.68, length: 180, height: 45, climbAt: 0.1, climbLength: 200 }],
     elevation: 3.1,
     rugged: 0.6,
     crags: 80,
@@ -692,6 +728,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'farm-gates',
+    plunges: [{ at: 0.58, length: 170, height: 40, climbAt: 0.14, climbLength: 190 }],
     elevation: 2.5,
     rugged: 0.4,
     crags: 60,
@@ -739,6 +776,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'highway-hop',
+    plunges: [{ at: 0.66, length: 180, height: 45, climbAt: 0.14, climbLength: 200 }],
     elevation: 2.5,
     rugged: 0.7,
     crags: 80,
@@ -784,6 +822,14 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'devils-canyon',
+    plunges: [
+      { at: 0.38, length: 180, height: 65 },
+      { at: 0.745, length: 180, height: 65 },
+    ],
+    slaloms: [
+      { at: 0.375, length: 220, amp: 11, waves: 2 },
+      { at: 0.74, length: 220, amp: 11, waves: 2 },
+    ],
     elevation: 1.35,
     rugged: 1,
     crags: 120,

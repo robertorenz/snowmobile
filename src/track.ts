@@ -95,9 +95,14 @@ export class Track {
     const pts = def.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(pts, def.closed, 'centripetal');
     curve.arcLengthDivisions = 4000;
-    const len = curve.getLength();
-    const seg = Math.round(len / SAMPLE_SPACING);
-    const sp = curve.getSpacedPoints(seg);
+    let len = curve.getLength();
+    let seg = Math.round(len / SAMPLE_SPACING);
+    let sp = curve.getSpacedPoints(seg);
+    if (def.slaloms?.length) {
+      sp = weave(sp, def.closed, len, def.slaloms);
+      seg = sp.length - 1;
+      len = seg * sp[0].distanceTo(sp[1]);
+    }
 
     this.closed = def.closed;
     this.n = def.closed ? seg : seg + 1;
@@ -154,9 +159,6 @@ export class Track {
       this.pz[i] = sp[i].z;
     }
 
-    // Pinches leave no room for error at full speed.
-    for (let i = 0; i < n; i++) if (this.hw[i] < 6.5) this.caution[i] = Math.min(this.caution[i], 31);
-
     // Crossings each get a ramp in front of them.
     this.ramps = [...def.jumps];
     for (const c of def.crossings ?? []) {
@@ -166,6 +168,16 @@ export class Track {
       this.ramps.push({ at: lipS / len, ...RAMP });
       this.crossings.push({ kind: c.kind, idx: Math.round(s / this.ds), s, half, lipS, y: 0 });
     }
+
+    // A crossing needs speed and room: never pinch the run-up or the landing.
+    for (const c of this.crossings) {
+      for (let i = 0; i < n; i++) {
+        const s = i * this.ds;
+        if (s > c.lipS - 90 && s < c.s + c.half + 60) this.hw[i] = Math.max(this.hw[i], 9);
+      }
+    }
+    // Pinches leave no room for error at full speed.
+    for (let i = 0; i < n; i++) if (this.hw[i] < 6.5) this.caution[i] = Math.min(this.caution[i], 31);
 
     // Jump ramps: a rise that ends in a lip.
     for (const j of this.ramps) {
@@ -201,6 +213,16 @@ export class Track {
         const s = i * this.ds;
         if (s > c.lipS - 26 && s < c.s + c.half + 8) this.respawn[i] = back;
         if (c.kind === 'highway' && Math.abs(s - c.s) < c.half) this.asphalt[i] = 1;
+      }
+    }
+
+    // Plunges: a steep drop, paid for (on a circuit) by an equally steep climb somewhere else.
+    for (const p of def.plunges ?? []) {
+      for (let i = 0; i < n; i++) {
+        const s = i * this.ds;
+        let dy = -p.height * smoothstep(0, 1, (s - p.at * len) / p.length);
+        if (p.climbAt !== undefined) dy += p.height * smoothstep(0, 1, (s - p.climbAt * len) / (p.climbLength ?? 200));
+        this.py[i] += dy;
       }
     }
 
@@ -325,6 +347,46 @@ export class Track {
   pointAt(i: number, lateral: number, out: THREE.Vector3) {
     return out.set(this.px[i] + this.lx[i] * lateral, this.py[i], this.pz[i] + this.lz[i] * lateral);
   }
+}
+
+/**
+ * Bends stretches of the centerline into a slalom: the points are pushed
+ * side to side, then re-spaced evenly so everything downstream still gets
+ * uniform samples.
+ */
+function weave(sp: THREE.Vector3[], closed: boolean, len: number, slaloms: NonNullable<TrackDef['slaloms']>) {
+  const m = sp.length;
+  const ds = len / (m - 1);
+  const moved = sp.map((p, i) => {
+    const a = sp[closed ? (i - 1 + (m - 1)) % (m - 1) : Math.max(0, i - 1)];
+    const b = sp[closed ? (i + 1) % (m - 1) : Math.min(m - 1, i + 1)];
+    const tx = b.x - a.x;
+    const tz = b.z - a.z;
+    const l = Math.hypot(tx, tz) || 1;
+    let off = 0;
+    for (const w of slaloms) {
+      const u = (i * ds - w.at * len) / w.length;
+      if (u <= 0 || u >= 1) continue;
+      // Ease in and out so the weave joins the course without a kink.
+      off += w.amp * Math.sin(u * w.waves * Math.PI * 2) * smoothstep(0, 0.2, u) * (1 - smoothstep(0.8, 1, u));
+    }
+    return new THREE.Vector3(p.x + (tz / l) * off, p.y, p.z - (tx / l) * off);
+  });
+  if (closed) moved[m - 1].copy(moved[0]);
+
+  const cum = [0];
+  for (let i = 1; i < m; i++) cum.push(cum[i - 1] + moved[i].distanceTo(moved[i - 1]));
+  const total = cum[m - 1];
+  const count = Math.round(total / SAMPLE_SPACING);
+  const out: THREE.Vector3[] = [];
+  let j = 0;
+  for (let k = 0; k <= count; k++) {
+    const s = (k / count) * total;
+    while (j < m - 2 && cum[j + 1] < s) j++;
+    const span = cum[j + 1] - cum[j] || 1;
+    out.push(moved[j].clone().lerp(moved[j + 1], (s - cum[j]) / span));
+  }
+  return out;
 }
 
 /** Flat outline of a track, for menu thumbnails and the minimap. */
