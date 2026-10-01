@@ -2,6 +2,8 @@
 
 A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across five tracks, on three difficulty levels.
 
+**Play it:** https://robertorenz.github.io/snowmobile/
+
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All models, terrain and sound are generated in code — there are no asset files.
 
 ## Run it
@@ -11,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173. `npm run build` produces a static site in `dist/` that can be hosted anywhere.
+Then open http://localhost:5173. `npm run build` produces a static site in `dist/` that can be hosted anywhere. Every push to `main` is built and deployed to GitHub Pages by `.github/workflows/pages.yml`.
 
 ## Controls
 
