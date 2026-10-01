@@ -160,6 +160,11 @@ export class World {
   readonly spray = new SnowSpray();
   readonly theme: Theme;
   private sun: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private skyMat!: THREE.ShaderMaterial;
+  private starMat?: THREE.PointsMaterial;
+  /** 0 full daylight to 1 night, on tracks where the light fails during the race. */
+  darkness = 0;
   private skyGroup = new THREE.Group();
   private snowMat?: THREE.ShaderMaterial;
   private auroraMat?: THREE.ShaderMaterial;
@@ -169,6 +174,9 @@ export class World {
   /** 0 clear to 1 thick: how heavy the weather is right now. */
   weather = 0;
   private snowSize = 70 * Math.min(window.devicePixelRatio, 2);
+  get train() {
+    return this.ambient.train;
+  }
   /** Deer and anything else alive on the course. */
   get animals() {
     return this.ambient.animals;
@@ -193,7 +201,7 @@ export class World {
     this.scene.fog = new THREE.Fog(theme.fog, theme.fogNear, theme.fogFar);
     this.scene.background = new THREE.Color(theme.fog);
 
-    const hemi = new THREE.HemisphereLight(theme.ambientSky, theme.ambientGround, theme.ambientIntensity);
+    const hemi = (this.hemi = new THREE.HemisphereLight(theme.ambientSky, theme.ambientGround, theme.ambientIntensity));
     this.scene.add(hemi);
 
     const sun = (this.sun = new THREE.DirectionalLight(theme.sun, theme.sunIntensity));
@@ -255,11 +263,12 @@ export class World {
           }`,
       }),
     );
+    this.skyMat = sky.material as THREE.ShaderMaterial;
     sky.renderOrder = -10;
     sky.frustumCulled = false;
     this.skyGroup.add(sky);
 
-    if (theme.stars) {
+    if (theme.stars || theme.dusk) {
       const n = 1600;
       const p = new Float32Array(n * 3);
       const rnd = mulberry32(99);
@@ -275,8 +284,9 @@ export class World {
       g.setAttribute('position', new THREE.BufferAttribute(p, 3));
       const stars = new THREE.Points(
         g,
-        new THREE.PointsMaterial({ color: 0xdcecff, size: 1.8, sizeAttenuation: false, fog: false, depthWrite: false }),
+        new THREE.PointsMaterial({ color: 0xdcecff, size: 1.8, sizeAttenuation: false, fog: false, depthWrite: false, transparent: true, opacity: theme.dusk ? 0 : 1 }),
       );
+      this.starMat = stars.material as THREE.PointsMaterial;
       stars.frustumCulled = false;
       this.skyGroup.add(stars);
     }
@@ -1224,6 +1234,31 @@ export class World {
     }
   }
 
+  /**
+   * Sets how far the day has gone on a dusk track: 0 is the track's own
+   * light, 1 is night. Sky, fog, sun and ambient light all slide toward a
+   * night palette and the stars come out.
+   */
+  setDarkness(k: number) {
+    if (!this.theme.dusk || Math.abs(k - this.darkness) < 0.004) return;
+    this.darkness = k;
+    const th = this.theme;
+    const mix = (day: number, night: number, into: THREE.Color) => into.setHex(day).lerp(_night.setHex(night), k);
+    const u = this.skyMat.uniforms;
+    mix(th.skyTop, 0x030814, u.uTop.value);
+    mix(th.skyHorizon, 0x10304c, u.uHorizon.value);
+    u.uSunAmt.value = 1 - k * 0.8;
+    const fog = this.scene.fog as THREE.Fog;
+    mix(th.fog, 0x0c2439, fog.color);
+    (this.scene.background as THREE.Color).copy(fog.color);
+    mix(th.sun, 0xa9c8ff, this.sun.color);
+    this.sun.intensity = th.sunIntensity * (1 - 0.62 * k);
+    mix(th.ambientSky, 0x3f6fa8, this.hemi.color);
+    mix(th.ambientGround, 0x1d3a55, this.hemi.groundColor);
+    this.hemi.intensity = th.ambientIntensity * (1 - 0.4 * k);
+    if (this.starMat) this.starMat.opacity = Math.max(0, k * 1.6 - 0.6);
+  }
+
   /** Per-frame upkeep: keep sky, snowfall and shadows centred on the action. */
   update(dt: number, camera: THREE.Camera, focus: THREE.Vector3) {
     this.time += dt;
@@ -1354,6 +1389,8 @@ function makeGrassClump(seed: number) {
   geo.computeVertexNormals();
   return geo;
 }
+
+const _night = new THREE.Color();
 
 /** Amber and black hazard stripes. */
 function stripeTexture() {

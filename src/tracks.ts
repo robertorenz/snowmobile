@@ -18,6 +18,8 @@ export interface Theme {
   aurora: boolean;
   night: boolean;
   exposure: number;
+  /** The light fails as the race goes on: golden hour at the start, night by the finish. */
+  dusk?: boolean;
   /** Green meadow: grass instead of snow, with snow only on the road. */
   meadow?: boolean;
 }
@@ -115,6 +117,7 @@ const DAY: Theme = {
 
 const GOLDEN: Theme = {
   ...DAY,
+  dusk: true,
   skyTop: 0x35618f,
   skyHorizon: 0xffc992,
   fog: 0xf6cfa6,

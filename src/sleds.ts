@@ -138,6 +138,38 @@ export function paintById(id: string | undefined) {
   return PAINTS.find((p) => p.id === id) ?? PAINTS[0];
 }
 
+/** Upgrades bought with coins. Each has three levels; every level adds per to the figures it improves. Solo play only. */
+export interface Upgrade {
+  id: 'engine' | 'turbo' | 'skis';
+  name: string;
+  note: string;
+  per: number;
+}
+
+export const UPGRADES: Upgrade[] = [
+  { id: 'engine', name: 'Engine', note: 'Top speed', per: 0.025 },
+  { id: 'turbo', name: 'Turbo', note: 'Acceleration', per: 0.04 },
+  { id: 'skis', name: 'Skis', note: 'Steering and grip', per: 0.035 },
+];
+export const UPGRADE_PRICES = [150, 300, 500];
+
+export type UpgradeLevels = Record<Upgrade['id'], number>;
+
+/** Stripe colours for the hood: free to choose. The first means "the model's own". */
+export const STRIPES = [-1, 0xf3f8fc, 0x14181d, 0xf6a821, 0xd8343a, 0x1e6fb0, 0x2e9e5b];
+
+/** A model with the player's upgrades and stripe applied. */
+export function tunedSled(spec: SledSpec, levels: UpgradeLevels, stripe: number): SledSpec {
+  return {
+    ...spec,
+    speed: spec.speed * (1 + levels.engine * UPGRADES[0].per),
+    accel: spec.accel * (1 + levels.turbo * UPGRADES[1].per),
+    turn: spec.turn * (1 + levels.skis * UPGRADES[2].per),
+    grip: spec.grip * (1 + levels.skis * UPGRADES[2].per),
+    shape: stripe >= 0 ? { ...spec.shape, stripe } : spec.shape,
+  };
+}
+
 /** Coins paid out by finishing place in a race, by time-trial medal, and by final position in a cup. */
 export const RACE_COINS = [60, 40, 30, 20, 15, 10];
 export const MEDAL_COINS = [80, 50, 30];

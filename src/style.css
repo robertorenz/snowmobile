@@ -1398,3 +1398,58 @@ kbd {
   border-radius: 12px;
   pointer-events: auto;
 }
+
+/* ---------- Upgrades and stripes ---------- */
+
+.hint {
+  margin-left: 8px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-weight: 600;
+  color: var(--muted);
+}
+.upgrades {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+.upgrade {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: rgba(23, 51, 77, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.upgrade > div:first-child {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.upgrade small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pips {
+  display: flex;
+  gap: 4px;
+}
+.pips i {
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--navy-950);
+  border: 1px solid rgba(160, 200, 230, 0.3);
+}
+.pips i.on {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.paint.stripe {
+  width: 46px;
+}
+.modal-actions + .modal-actions {
+  margin-top: 8px;
+}

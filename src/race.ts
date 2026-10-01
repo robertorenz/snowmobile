@@ -5,7 +5,7 @@ import type { World } from './world';
 import type { GridEntry } from './net';
 import { DIFFICULTIES, Difficulty } from './tracks';
 import { clamp, lerp } from './util';
-import { SLEDS, DEFAULT_SLED, sledById } from './sleds';
+import { SLEDS, DEFAULT_SLED, sledById, SledSpec } from './sleds';
 import { buildSledModel } from './sledModel';
 
 export type RacePhase = 'waiting' | 'countdown' | 'racing' | 'finished';
@@ -48,6 +48,8 @@ export interface RaceOptions {
   ghost?: number[] | null;
   /** Colour of the player's sled in a solo race. */
   paint?: number;
+  /** The player's model with upgrades and stripe applied, for a solo race. */
+  tuned?: SledSpec;
 }
 
 /** Seconds between samples of a recorded run. */
@@ -157,7 +159,7 @@ export class Race {
 
     grid.forEach((entry, slot) => {
       const isPlayer = entry.kind === 'human' && entry.id === localId;
-      const sled = new Sled(entry.name, entry.color, isPlayer, sledById(entry.sled), isPlayer);
+      const sled = new Sled(entry.name, entry.color, isPlayer, isPlayer && opts.tuned ? opts.tuned : sledById(entry.sled), isPlayer);
       sled.remote = entry.kind === 'human' ? !isPlayer : !simulateAI;
       const row = Math.floor(slot / 2);
       const side = slot % 2 ? -1 : 1;
@@ -278,9 +280,45 @@ export class Race {
     this.rank();
   }
 
+  /** Every sled's position and heading, sampled every GHOST_STEP seconds, for the replay. */
+  readonly replay: number[][] = [];
+  private replayAt = 0;
+  private replayHint: number[] = [];
+
+  /** Length of the recorded race, in seconds. */
+  get replayLength() {
+    return ((this.replay[0]?.length ?? 0) / 4) * GHOST_STEP;
+  }
+
+  /** Puts every sled where it was at time t of the recording. */
+  showReplay(t: number, dt: number) {
+    const track = this.world.track;
+    this.sleds.forEach((s, k) => {
+      const d = this.replay[k];
+      if (!d || d.length < 8) return;
+      const f = Math.min(t / GHOST_STEP, d.length / 4 - 1.001);
+      const i = Math.floor(f);
+      const u = f - i;
+      const a = i * 4;
+      s.pos.set(d[a] + (d[a + 4] - d[a]) * u, d[a + 1] + (d[a + 5] - d[a + 1]) * u, d[a + 2] + (d[a + 6] - d[a + 2]) * u);
+      s.vel.set((d[a + 4] - d[a]) / GHOST_STEP, 0, (d[a + 6] - d[a + 2]) / GHOST_STEP);
+      s.yaw = d[a + 3];
+      // Keep track of which stretch of course it's on, so bridges are handled.
+      this.replayHint[k] = s.idx = track.nearest(s.pos.x, s.pos.z, this.replayHint[k] ?? -1, 40);
+      s.model.group.visible = true;
+      s.present(dt);
+    });
+  }
+
   /** Time-trial ghost and recording; elimination knockouts. */
   private modeRules(dt: number) {
     const p = this.player;
+    // Record everyone for the replay (up to eight minutes).
+    if (p && !this.attract && this.time >= this.replayAt && this.time < 480) {
+      this.replayAt += GHOST_STEP;
+      const r = (v: number) => Math.round(v * 10) / 10;
+      this.sleds.forEach((s, k) => (this.replay[k] ??= []).push(r(s.pos.x), r(s.pos.y), r(s.pos.z), Math.round(s.yaw * 100) / 100));
+    }
     if (this.mode === 'trial' && p) {
       if (!p.finished && this.time >= this.recordAt) {
         this.recordAt += GHOST_STEP;

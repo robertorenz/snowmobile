@@ -1,5 +1,6 @@
 import { ALL_SURFACES } from './tracks';
 import type { Difficulty, SurfaceOptions } from './tracks';
+import type { UpgradeLevels } from './sleds';
 
 const KEY = 'powder-rush-save-v1';
 
@@ -21,6 +22,9 @@ export interface SaveData {
   coins: number;
   paints: string[];
   paint: string;
+  upgrades: UpgradeLevels;
+  /** Hood stripe colour, or -1 for the model's own. */
+  stripe: number;
   /** What the Race button starts. */
   mode: GameMode;
   cup: number;
@@ -40,7 +44,7 @@ export interface SaveData {
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, music: true, coins: 0, paints: ['amber'], paint: 'amber', mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {

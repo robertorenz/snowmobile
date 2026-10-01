@@ -11,6 +11,8 @@ import { mulberry32 } from './util';
 export class Ambient {
   /** Deer on or near the road: where they are, and a way to scare them off. */
   readonly animals: { x: number; z: number; onRoad: boolean; cool: number; scare: () => void }[] = [];
+  /** Where the locomotive is, and whether it's out of its tunnels, for the whistle. */
+  readonly train = { pos: new THREE.Vector3(), running: false };
   private time = 0;
   private updaters: ((dt: number, t: number) => void)[] = [];
   private rnd: () => number;
@@ -46,6 +48,7 @@ export class Ambient {
     this.buildDeer();
     this.buildCrowd();
     this.buildCabins();
+    this.buildSkiLift();
   }
 
   update(dt: number) {
@@ -145,45 +148,257 @@ export class Ambient {
 
   // ---------- Spectators at the start ----------
 
+  /**
+   * A crowd either side of the start line. Each spectator is a small figure
+   * (legs, coat, arms, head, woolly hat) facing the course and doing
+   * something: waving, cheering with both arms up, clapping, jumping, or
+   * just watching. A few wave flags.
+   */
   private buildCrowd() {
     const { track, terrain, scene } = this.world;
     const rnd = this.rnd;
-    const spots: [number, number, number][] = [];
+    type Act = 'wave' | 'cheer' | 'clap' | 'jump' | 'watch';
+    interface Person {
+      x: number;
+      y: number;
+      z: number;
+      yaw: number;
+      size: number;
+      act: Act;
+      phase: number;
+      flag: boolean;
+    }
+    const people: Person[] = [];
+    const acts: Act[] = ['wave', 'cheer', 'clap', 'jump', 'watch', 'wave', 'cheer', 'clap'];
     const a = track.startIdx;
-    for (let k = -14; k <= 26; k++) {
+    for (let k = -16; k <= 28; k++) {
       const i = track.wrap(a + k);
       if (track.walled[i]) continue;
       for (const side of [1, -1]) {
-        for (let row = 0; row < 2; row++) {
-          if (rnd() < 0.3) continue;
-          const off = side * (track.hw[i] + 3.2 + row * 1.5 + rnd() * 0.6);
-          const x = track.px[i] + track.lx[i] * off + (rnd() - 0.5) * 0.8;
-          const z = track.pz[i] + track.lz[i] * off + (rnd() - 0.5) * 0.8;
-          spots.push([x, terrain.height(x, z), z]);
+        for (let row = 0; row < 3; row++) {
+          if (rnd() < 0.42 + row * 0.12) continue;
+          const off = side * (track.hw[i] + 3 + row * 1.25 + rnd() * 0.5);
+          const x = track.px[i] + track.lx[i] * off + (rnd() - 0.5) * 1.2;
+          const z = track.pz[i] + track.lz[i] * off + (rnd() - 0.5) * 1.2;
+          const act = acts[Math.floor(rnd() * acts.length)];
+          people.push({
+            x,
+            y: terrain.height(x, z),
+            z,
+            // Turned toward the course, give or take.
+            yaw: Math.atan2(track.px[i] - x, track.pz[i] - z) + (rnd() - 0.5) * 0.7,
+            // Mostly adults, some children.
+            size: rnd() < 0.18 ? 0.62 + rnd() * 0.12 : 0.92 + rnd() * 0.2,
+            act,
+            phase: rnd() * 6.3,
+            flag: act === 'wave' && rnd() < 0.45,
+          });
         }
       }
     }
-    if (!spots.length) return;
-    const body = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.24, 0.85, 3, 8), new THREE.MeshStandardMaterial({ roughness: 0.85 }), spots.length);
-    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshStandardMaterial({ color: 0xe2b99a, roughness: 0.8 }), spots.length);
-    const coats = [0xd8343a, 0x1e6fb0, 0xf6a821, 0x2e9e5b, 0xf3f6f8, 0x13b5c2, 0xff6f3c, 0x34495e];
-    const m = new THREE.Matrix4();
+    const n = people.length;
+    if (!n) return;
+
+    const cloth = () => new THREE.MeshStandardMaterial({ roughness: 0.85 });
+    // Each part is modelled about the point it turns on, so arms swing from the shoulder.
+    const legGeo = new THREE.BoxGeometry(0.15, 0.78, 0.17).translate(0, 0.39, 0);
+    const coatGeo = new THREE.CylinderGeometry(0.19, 0.25, 0.66, 8).scale(1, 1, 0.7).translate(0, 1.1, 0);
+    const armGeo = new THREE.BoxGeometry(0.11, 0.56, 0.11).translate(0, -0.26, 0);
+    const headGeo = new THREE.SphereGeometry(0.135, 10, 8).translate(0, 1.6, 0);
+    const hatGeo = new THREE.SphereGeometry(0.145, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 1.63, 0);
+    const bobbleGeo = new THREE.SphereGeometry(0.05, 6, 5).translate(0, 1.8, 0);
+    const scarfGeo = new THREE.CylinderGeometry(0.15, 0.16, 0.1, 8).translate(0, 1.44, 0);
+    const mittGeo = new THREE.SphereGeometry(0.075, 6, 5).translate(0, -0.56, 0);
+    const poleGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.9, 4).translate(0, -1.0, 0);
+    const flagGeo = new THREE.PlaneGeometry(0.5, 0.32).translate(0.26, -1.28, 0);
+
+    const mesh = (geo: THREE.BufferGeometry, count: number, mat: THREE.Material, shadow = false) => {
+      const m = new THREE.InstancedMesh(geo, mat, count);
+      m.castShadow = shadow;
+      m.frustumCulled = false;
+      scene.add(m);
+      return m;
+    };
+    const legs = mesh(legGeo, n * 2, cloth());
+    const coats = mesh(coatGeo, n, cloth(), true);
+    const arms = mesh(armGeo, n * 2, cloth());
+    const mitts = mesh(mittGeo, n * 2, cloth());
+    const heads = mesh(headGeo, n, cloth());
+    const hats = mesh(hatGeo, n, cloth());
+    const bobbles = mesh(bobbleGeo, n, cloth());
+    const scarves = mesh(scarfGeo, n, cloth());
+    const flaggers = people.filter((p) => p.flag).length;
+    const poles = mesh(poleGeo, Math.max(1, flaggers), new THREE.MeshStandardMaterial({ color: 0x3a2c1e }));
+    const flags = mesh(flagGeo, Math.max(1, flaggers), new THREE.MeshStandardMaterial({ roughness: 0.8, side: THREE.DoubleSide }));
+    poles.count = flags.count = flaggers;
+
+    const jackets = [0xd8343a, 0x1e6fb0, 0xf6a821, 0x2e9e5b, 0xf3f6f8, 0x13b5c2, 0xff6f3c, 0x34495e, 0x8a5a36, 0xc9a227];
+    const trousers = [0x1b242e, 0x2b3440, 0x3a2f28, 0x22303c, 0x4a4f57];
+    const skins = [0xf1c9a5, 0xe0ac82, 0xc68a5e, 0x9a6642, 0x70452b];
+    const pick = (list: number[]) => list[Math.floor(rnd() * list.length)];
     const tint = new THREE.Color();
-    const phases = spots.map(() => rnd() * 6);
-    const jumpy = spots.map(() => rnd() < 0.5);
-    spots.forEach((_s, j) => body.setColorAt(j, tint.setHex(coats[Math.floor(rnd() * coats.length)])));
-    body.castShadow = true;
-    body.frustumCulled = head.frustumCulled = false;
-    scene.add(body, head);
-    // Half the crowd bounces on the spot, cheering.
+    people.forEach((_p, j) => {
+      const coat = pick(jackets);
+      const hat = pick(jackets);
+      coats.setColorAt(j, tint.setHex(coat));
+      heads.setColorAt(j, tint.setHex(pick(skins)));
+      hats.setColorAt(j, tint.setHex(hat));
+      bobbles.setColorAt(j, tint.setHex(pick(jackets)));
+      scarves.setColorAt(j, tint.setHex(pick(jackets)));
+      const legColor = pick(trousers);
+      for (const k of [0, 1]) {
+        legs.setColorAt(j * 2 + k, tint.setHex(legColor));
+        arms.setColorAt(j * 2 + k, tint.setHex(coat));
+        mitts.setColorAt(j * 2 + k, tint.setHex(hat));
+      }
+    });
+    let f = 0;
+    const flagOf = people.map((p) => (p.flag ? f++ : -1));
+    for (let k = 0; k < flaggers; k++) flags.setColorAt(k, tint.setHex(pick(jackets)));
+
+    const body = new THREE.Matrix4();
+    const part = new THREE.Matrix4();
+    const out = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const euler = new THREE.Euler();
+    /** Places one limb: swung by (rx, rz) about its joint at (x, y, 0) on the body. */
+    const limb = (m: THREE.InstancedMesh, index: number, x: number, y: number, rx: number, rz: number) => {
+      part.makeRotationFromEuler(euler.set(rx, 0, rz));
+      part.setPosition(x, y, 0);
+      m.setMatrixAt(index, out.multiplyMatrices(body, part));
+    };
+
     this.updaters.push((_dt, t) => {
-      spots.forEach(([x, y, z], j) => {
-        const hop = jumpy[j] ? Math.abs(Math.sin(t * 5 + phases[j])) * 0.22 : 0;
-        body.setMatrixAt(j, m.makeTranslation(x, y + 0.67 + hop, z));
-        head.setMatrixAt(j, m.makeTranslation(x, y + 1.5 + hop, z));
+      people.forEach((p, j) => {
+        const beat = t * 4.5 + p.phase;
+        // Everyone shifts their weight a little; jumpers leave the ground.
+        const hop = p.act === 'jump' ? Math.max(0, Math.sin(beat * 1.3)) * 0.32 : p.act === 'cheer' ? Math.abs(Math.sin(beat)) * 0.07 : 0;
+        const sway = Math.sin(beat * 0.5) * 0.05;
+        quat.setFromEuler(euler.set(0, p.yaw + sway, sway * 0.6));
+        body.compose(pos.set(p.x, p.y + hop, p.z), quat, scale.setScalar(p.size));
+
+        coats.setMatrixAt(j, body);
+        heads.setMatrixAt(j, body);
+        hats.setMatrixAt(j, body);
+        bobbles.setMatrixAt(j, body);
+        scarves.setMatrixAt(j, body);
+        // Knees bend into a jump.
+        const tuck = p.act === 'jump' ? hop * 0.9 : 0;
+        limb(legs, j * 2, 0.1, 0, -tuck, 0);
+        limb(legs, j * 2 + 1, -0.1, 0, tuck, 0);
+
+        // Arms: angle forward (rx) and out to the side (rz) for the left, mirrored for the right.
+        let lx = 0.05;
+        let lz = 0.12;
+        let rx = 0.05;
+        let rz = 0.12;
+        if (p.act === 'wave') {
+          rz = 2.75 + Math.sin(beat * 1.6) * 0.4;
+          rx = 0.15;
+        } else if (p.act === 'cheer' || p.act === 'jump') {
+          lz = rz = 2.5 + Math.sin(beat * 1.2) * 0.35;
+        } else if (p.act === 'clap') {
+          lx = rx = -1.25;
+          lz = rz = -0.32 + Math.abs(Math.sin(beat * 1.8)) * 0.42;
+        }
+        limb(arms, j * 2, 0.27, 1.38, lx, lz);
+        limb(mitts, j * 2, 0.27, 1.38, lx, lz);
+        limb(arms, j * 2 + 1, -0.27, 1.38, rx, -rz);
+        limb(mitts, j * 2 + 1, -0.27, 1.38, rx, -rz);
+        if (flagOf[j] >= 0) {
+          limb(poles, flagOf[j], -0.27, 1.38, rx, -rz);
+          limb(flags, flagOf[j], -0.27, 1.38, rx, -rz);
+        }
       });
-      body.instanceMatrix.needsUpdate = true;
-      head.instanceMatrix.needsUpdate = true;
+      for (const m of [legs, coats, arms, mitts, heads, hats, bobbles, scarves, poles, flags]) m.instanceMatrix.needsUpdate = true;
+    });
+  }
+  // ---------- Ski lift ----------
+
+  /** A chairlift strung across the valley, passing over the course, with chairs going both ways. */
+  private buildSkiLift() {
+    const { track, terrain, scene, colliders } = this.world;
+    const rnd = this.rnd;
+    // Find a clear, fairly straight piece of road to cross.
+    let at = -1;
+    for (let tries = 0; tries < 300 && at < 0; tries++) {
+      const i = Math.floor(rnd() * track.n);
+      if (track.walled[i] || track.asphalt[i] || track.respawn[i] !== i || Math.abs(track.curv[i]) > 0.008 || i * track.ds < track.startS + 150) continue;
+      at = i;
+    }
+    if (at < 0) return;
+    const steel = new THREE.MeshStandardMaterial({ color: 0x55616e, roughness: 0.5, metalness: 0.6 });
+    const seatMat = new THREE.MeshStandardMaterial({ color: 0xd8343a, roughness: 0.6 });
+    const reach = track.hw[at] + 115;
+    const offsets = [-reach, -reach * 0.55, -(track.hw[at] + 9), track.hw[at] + 9, reach * 0.55, reach];
+    // Tower tops, in order across the valley.
+    const tops = offsets.map((o) => {
+      const x = track.px[at] + track.lx[at] * o;
+      const z = track.pz[at] + track.lz[at] * o;
+      const ground = terrain.height(x, z);
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.42, 13, 8), steel);
+      tower.position.set(x, ground + 6.5, z);
+      tower.castShadow = true;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 4.4), steel);
+      arm.position.set(x, ground + 13, z);
+      arm.rotation.y = track.yawAt(at);
+      scene.add(tower, arm);
+      colliders.add({ x, z, r: 0.9 });
+      return new THREE.Vector3(x, ground + 13, z);
+    });
+    // Keep the cable well clear of the road it crosses.
+    const roadTop = track.py[at] + 11;
+    tops[2].y = Math.max(tops[2].y, roadTop);
+    tops[3].y = Math.max(tops[3].y, roadTop);
+    const cum = [0];
+    for (let k = 1; k < tops.length; k++) cum.push(cum[k - 1] + tops[k].distanceTo(tops[k - 1]));
+    const length = cum[cum.length - 1];
+    // The two cables run side by side, offset along the road.
+    const tx = track.tx[at] * 1.9;
+    const tz = track.tz[at] * 1.9;
+    for (const side of [1, -1]) {
+      const pts = tops.map((p) => new THREE.Vector3(p.x + tx * side, p.y, p.z + tz * side));
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x1b2026 })));
+    }
+    const chairs: { node: THREE.Group; d: number; side: number }[] = [];
+    const count = 10;
+    for (let c = 0; c < count; c++) {
+      const node = new THREE.Group();
+      const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.07, 2.4, 0.07), steel);
+      hanger.position.y = -1.2;
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 1.7), seatMat);
+      seat.position.y = -2.4;
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 1.7), seatMat);
+      back.position.set(-0.24, -2.1, 0);
+      node.add(hanger, seat, back);
+      // Most chairs carry a skier or two.
+      for (const s of [-0.4, 0.4]) {
+        if (rnd() < 0.3) continue;
+        const coat = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.4, 3, 6), new THREE.MeshStandardMaterial({ color: [0x1e6fb0, 0xf6a821, 0x2e9e5b, 0xf3f6f8][Math.floor(rnd() * 4)], roughness: 0.8 }));
+        coat.position.set(0.02, -1.95, s);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), new THREE.MeshStandardMaterial({ color: 0xe0ac82 }));
+        head.position.set(0.02, -1.5, s);
+        node.add(coat, head);
+      }
+      node.rotation.y = track.yawAt(at);
+      scene.add(node);
+      const side = c % 2 ? 1 : -1;
+      chairs.push({ node, d: (c / count) * length, side });
+    }
+    const p = new THREE.Vector3();
+    this.updaters.push((dt, t) => {
+      for (const c of chairs) {
+        // One cable carries chairs each way.
+        c.d = (c.d + 2.6 * dt) % length;
+        const d = c.side > 0 ? c.d : length - c.d;
+        let k = 0;
+        while (k < cum.length - 2 && cum[k + 1] < d) k++;
+        p.lerpVectors(tops[k], tops[k + 1], (d - cum[k]) / (cum[k + 1] - cum[k]));
+        c.node.position.set(p.x + tx * c.side, p.y, p.z + tz * c.side);
+        c.node.rotation.z = Math.sin(t * 1.3 + c.d) * 0.04;
+      }
     });
   }
 
@@ -699,6 +914,8 @@ export class Ambient {
         c.node.position.copy(p);
         c.node.lookAt(p2);
       }
+      this.train.running = loco.visible;
+      if (loco.visible) this.train.pos.copy(loco.position);
       puffTimer -= dt;
       if (loco.visible && puffTimer <= 0) {
         puffTimer = 0.11;

@@ -3,7 +3,7 @@ import { trackOutline } from './track';
 import { SaveData, GameMode, resultKey } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
-import { SLEDS, PAINTS, sledById } from './sleds';
+import { SLEDS, PAINTS, UPGRADES, UPGRADE_PRICES, STRIPES, Upgrade, sledById } from './sleds';
 
 export interface UICallbacks {
   onSelectTrack(index: number): void;
@@ -18,6 +18,13 @@ export interface UICallbacks {
   /** Select a paint, buying it first if need be. False if there aren't enough coins. */
   onPaint(id: string): boolean;
   onChat(text: string): void;
+  /** Buy the next level of an upgrade. False if it's maxed or there aren't enough coins. */
+  onUpgrade(id: Upgrade['id']): boolean;
+  onStripe(color: number): void;
+  onReplay(): void;
+  onWatch(): void;
+  /** The button on the replay / spectating bar. */
+  onBarBack(): void;
   onPhoto(): void;
   onPhotoSave(): void;
   onPhotoExit(): void;
@@ -81,6 +88,10 @@ export interface ResultsData {
   eliminated?: boolean;
   /** Coins won in this race. */
   coins?: number;
+  /** Filled in by the game: whether there is a replay to watch, riders still out to spectate, and whether we host the room. */
+  canReplay?: boolean;
+  canWatch?: boolean;
+  isHost?: boolean;
 }
 
 const standingRows = (standings: Standing[]) =>
@@ -204,7 +215,8 @@ export class UI {
       )
       .join('');
 
-    const mode: GameMode = room ? 'race' : save.mode;
+    // In a room only the host chooses, and only between a single race and a cup.
+    const mode: GameMode = room ? (room.isHost && save.mode === 'championship' ? 'championship' : 'race') : save.mode;
     const cards = TRACKS.map((t, i) => {
       // Every track is open in an online room.
       const locked = !room && i >= save.unlocked;
@@ -265,10 +277,11 @@ export class UI {
     const cup = CUPS[save.cup] ?? CUPS[0];
     const startLabel = mode === 'trial' ? `Time trial: ${sel.name}` : mode === 'elimination' ? `Knockout: ${sel.name}` : mode === 'championship' ? `Start the ${cup.name}` : `Race ${sel.name}`;
     const modes: [GameMode, string][] = [['race', 'Race'], ['trial', 'Time trial'], ['elimination', 'Knockout'], ['championship', 'Cup']];
-    const modeBar = room ? '' : `<div class="segmented four">${modes.map(([id, label]) => `<button class="seg ${id === mode ? 'active' : ''}" data-mode="${id}">${label}</button>`).join('')}</div>`;
+    if (room) modes.splice(1, 2);
+    const modeBar = room && !room.isHost ? '' : `<div class="segmented four">${modes.map(([id, label]) => `<button class="seg ${id === mode ? 'active' : ''}" data-mode="${id}">${label}</button>`).join('')}</div>`;
     // A cup needs every one of its tracks unlocked.
     const cupCards = CUPS.map((c, i) => {
-      const locked = Math.max(...c.tracks) >= save.unlocked;
+      const locked = !room && Math.max(...c.tracks) >= save.unlocked;
       const best = save.cups[c.id];
       return `
         <button class="track-card cup ${i === save.cup ? 'selected' : ''} ${locked ? 'locked' : ''}" data-cup="${i}" ${locked ? 'disabled' : ''}>
@@ -282,7 +295,7 @@ export class UI {
       ? `<button class="btn primary big" data-act="start">${startLabel}</button>
          <button class="btn wide" data-act="online">Play online with friends</button>`
       : room.isHost
-        ? `<button class="btn primary big" data-act="start">Start online race</button>`
+        ? `<button class="btn primary big" data-act="start">${mode === 'championship' ? `Start online ${cup.name}` : 'Start online race'}</button>`
         : `<button class="btn primary big" disabled>Waiting for host…</button>`;
     this.menu.innerHTML = `
       <div class="menu-panel">
@@ -537,6 +550,14 @@ export class UI {
       <h2>Choose your snowmobile</h2>
       <p class="modal-lead">Each drives differently. Low grip means it slides; the Mammoth also shrugs off deep snow, rock and grass.</p>
       <div class="sled-grid">${cards}</div>
+      <div class="section-label">Upgrades <small class="hint">solo races only</small></div>
+      <div class="upgrades">${UPGRADES.map((u) => {
+        const level = this.save.upgrades[u.id];
+        const price = UPGRADE_PRICES[level];
+        return `<div class="upgrade"><div><b>${u.name}</b><small>${u.note}</small></div><div class="pips">${[0, 1, 2].map((k) => `<i class="${k < level ? 'on' : ''}"></i>`).join('')}</div><button class="btn small" data-upgrade="${u.id}" ${price === undefined || this.save.coins < price ? 'disabled' : ''}>${price === undefined ? 'Maxed' : price + ' coins'}</button></div>`;
+      }).join('')}</div>
+      <div class="section-label">Hood stripe</div>
+      <div class="paints">${STRIPES.map((c) => `<button class="paint stripe ${c === this.save.stripe ? 'selected' : ''}" data-stripe="${c}" aria-label="Stripe colour"><span style="background:${c < 0 ? 'repeating-linear-gradient(45deg,#f3f8fc 0 5px,#55616e 5px 10px)' : hex(c)}"></span></button>`).join('')}</div>
       <div class="section-label">Paint <span class="coins">${this.save.coins}</span></div>
       <div class="paints">${PAINTS.map((p) => {
         const owned = this.save.paints.includes(p.id);
@@ -552,6 +573,18 @@ export class UI {
         this.cb.onSled(b.dataset.sled!);
         this.closeModal();
         this.renderMenu();
+      }),
+    );
+    m.querySelectorAll<HTMLButtonElement>('[data-upgrade]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (this.cb.onUpgrade(b.dataset.upgrade as Upgrade['id'])) this.showSleds();
+      }),
+    );
+    m.querySelectorAll<HTMLButtonElement>('[data-stripe]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.save.stripe = Number(b.dataset.stripe);
+        this.cb.onStripe(this.save.stripe);
+        this.showSleds();
       }),
     );
     m.querySelectorAll<HTMLButtonElement>('[data-paint]').forEach((b) =>
@@ -777,6 +810,14 @@ export class UI {
       else if (d.playerPlace > 3) notes.push(`<div class="note">Finish in the top 3 to unlock the next level.</div>`);
     }
 
+    // A cup run by the host of an online room: only the host moves it on.
+    if (d.champ && d.online) {
+      actions = d.isHost && d.hasNext
+        ? '<button class="btn primary" data-act="next">Next race</button><button class="btn ghost" data-act="quit">End cup</button>'
+        : '<button class="btn primary" data-act="quit">Back to room</button>';
+      if (!d.isHost && d.hasNext) notes.push('<div class="note">The host starts the next race.</div>');
+    }
+    const extras = `${d.canWatch ? '<button class="btn" data-act="watch">Watch the others finish</button>' : ''}`;
     if (d.coins) notes.unshift(`<div class="note good">+${d.coins} coins</div>`);
     const m = this.openModal(
       `
@@ -789,6 +830,7 @@ export class UI {
       </div>
       ${notes.join('')}
       ${body}
+      ${extras ? `<div class="modal-actions">${extras}</div>` : ''}
       <div class="modal-actions">${actions}</div>`,
       true,
     );
@@ -796,8 +838,27 @@ export class UI {
       next: () => this.cb.onNext(),
       restart: () => this.cb.onRestart(),
       quit: () => this.cb.onQuit(),
+      replay: () => this.cb.onReplay(),
+      watch: () => this.cb.onWatch(),
     });
   }
+
+  private bar: HTMLElement | null = null;
+
+  /** The strip shown while watching a replay or spectating; null hides it. */
+  showBar(label: string | null, button = '') {
+    if (!this.bar) {
+      this.bar = el(`<div class="photo-bar hidden"><span></span><button class="btn primary"></button></div>`);
+      this.root.appendChild(this.bar);
+      this.bar.querySelector('button')!.addEventListener('click', () => this.cb.onBarBack());
+    }
+    this.bar.classList.toggle('hidden', label === null);
+    if (label !== null) {
+      this.bar.querySelector('span')!.textContent = label;
+      this.bar.querySelector('button')!.textContent = button;
+    }
+  }
+
   showError(message: string) {
     const m = this.openModal(`
       <h2>Something went wrong</h2>

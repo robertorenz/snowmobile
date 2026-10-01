@@ -239,6 +239,12 @@ export class Sled {
     this.impact = Math.max(this.impact, 8);
   }
 
+  /** Shows the sled wherever pos and yaw have been set, without simulating it: used by replays. */
+  present(dt: number) {
+    this.grounded = true;
+    this.syncModel(dt);
+  }
+
   /** Recovers a lost sled: back to the centerline where it left, stopped. */
   resetToTrack(world: World) {
     const { track, terrain } = world;

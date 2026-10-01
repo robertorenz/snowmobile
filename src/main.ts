@@ -3,7 +3,7 @@ import './style.css';
 import { TRACKS, CUPS, CUP_POINTS, MEDAL_FACTORS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
 import { World } from './world';
 import { Race, NetRace, RaceOptions, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
-import { SLEDS, sledById, paintById, RACE_COINS, MEDAL_COINS, CUP_COINS } from './sleds';
+import { SLEDS, sledById, paintById, tunedSled, UPGRADE_PRICES, RACE_COINS, MEDAL_COINS, CUP_COINS } from './sleds';
 import { AIDriver } from './ai';
 import { DIFFICULTIES } from './tracks';
 import { buildSledModel } from './sledModel';
@@ -11,7 +11,7 @@ import { NetSession, StartMsg, GridEntry, cleanCode, cleanName } from './net';
 import { SLED, Sled } from './sled';
 import { Input } from './input';
 import { AudioEngine } from './audio';
-import { UI, HudState, RoomView } from './ui';
+import { UI, HudState, RoomView, ResultsData } from './ui';
 import { loadSave, writeSave, resultKey, loadGhost, saveGhost } from './storage';
 import { clamp, lerp, wrapAngle, formatTime } from './util';
 
@@ -87,7 +87,16 @@ class Game {
         this.syncRoom();
       },
       onStart: () => {
-        if (this.net) this.hostStartOnline();
+        if (this.net) {
+          // The host can run a cup for the room: four races, points for everyone.
+          if (this.save.mode === 'championship') {
+            this.champ = { cup: this.save.cup, race: 0, points: {} };
+            this.hostStartOnline(CUPS[this.save.cup].tracks[0]);
+          } else {
+            this.champ = null;
+            this.hostStartOnline();
+          }
+        }
         else if (this.save.mode === 'championship') {
           this.champ = { cup: this.save.cup, race: 0, points: {} };
           void this.startRace(CUPS[this.save.cup].tracks[0]);
@@ -115,7 +124,8 @@ class Game {
         const c = this.champ;
         if (c) {
           c.race++;
-          void this.startRace(CUPS[c.cup].tracks[c.race]);
+          if (this.net) this.hostStartOnline(CUPS[c.cup].tracks[c.race]);
+          else void this.startRace(CUPS[c.cup].tracks[c.race]);
         } else void this.startRace(Math.min(this.trackIndex + 1, TRACKS.length - 1));
       },
       onToggleMute: () => this.toggleMute(),
@@ -137,6 +147,22 @@ class Game {
         return true;
       },
       onChat: (text) => this.net?.sendChat(text),
+      onUpgrade: (id) => {
+        const level = this.save.upgrades[id];
+        const price = UPGRADE_PRICES[level];
+        if (price === undefined || this.save.coins < price) return false;
+        this.save.coins -= price;
+        this.save.upgrades[id] = level + 1;
+        writeSave(this.save);
+        return true;
+      },
+      onStripe: (color) => {
+        this.save.stripe = color;
+        writeSave(this.save);
+      },
+      onReplay: () => this.startReplay(),
+      onWatch: () => this.startWatching(),
+      onBarBack: () => this.backToResults(),
       onPhoto: () => this.enterPhoto(),
       onPhotoSave: () => this.savePhoto(),
       onPhotoExit: () => this.exitPhoto(),
@@ -257,12 +283,14 @@ class Game {
       this.race = new Race(world, difficulty, attract, net, this.save.sled, opts);
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
-      if (world.theme.night) this.headlight = addHeadlight(lit);
+      if (world.theme.night || world.theme.dusk) this.headlight = addHeadlight(lit);
+      world.setDarkness(0);
       this.camSnap = true;
       this.finishTimer = 0;
       this.standingsTimer = 0;
       this.resultsShown = false;
       this.banner = '';
+      this.stopWatching();
     } catch (err) {
       console.error(err);
       this.ui.showError('The track could not be built. Check that your browser supports WebGL 2.');
@@ -282,7 +310,12 @@ class Game {
     // A cup is a series of ordinary races; the other modes are their own kind of race.
     const mode = this.champ || this.save.mode === 'championship' ? 'race' : this.save.mode;
     const ghost = mode === 'trial' ? loadGhost(TRACKS[index].id) : null;
-    await this.load(index, false, this.save.difficulty, null, this.save.surfaces, { mode, ghost, paint: paintById(this.save.paint).color });
+    await this.load(index, false, this.save.difficulty, null, this.save.surfaces, {
+      mode,
+      ghost,
+      paint: paintById(this.save.paint).color,
+      tuned: tunedSled(sledById(this.save.sled), this.save.upgrades, this.save.stripe),
+    });
     this.mode = 'race';
     this.paused = false;
     this.ui.selectTrack(index);
@@ -318,7 +351,7 @@ class Game {
 
   /** A small picture of a snowmobile model, for the menu. Rendered once and kept. */
   private sledThumb(id: string) {
-    const cacheKey = id + ':' + this.save.paint;
+    const cacheKey = id + ':' + this.save.paint + ':' + this.save.stripe;
     const cached = this.thumbs.get(cacheKey);
     if (cached) return cached;
     const W = 360;
@@ -329,7 +362,7 @@ class Game {
     const key = new THREE.DirectionalLight(0xffffff, 2.6);
     key.position.set(3, 6, 4);
     scene.add(key);
-    const model = buildSledModel(paintById(this.save.paint).color, 0xf3f8fc, sledById(id).shape);
+    const model = buildSledModel(paintById(this.save.paint).color, 0xf3f8fc, tunedSled(sledById(id), this.save.upgrades, this.save.stripe).shape);
     scene.add(model.group);
     const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50);
     cam.position.set(4.4, 2.1, 3.6);
@@ -447,7 +480,7 @@ class Game {
   }
 
   /** Host: build the grid (AI up front, players behind) and send everyone to the start. */
-  private hostStartOnline() {
+  private hostStartOnline(track = this.ui.selectedTrack) {
     const net = this.net;
     if (!net || !net.isHost || this.busy) return;
     const humans = net.lobby.players.slice(0, RACERS);
@@ -456,7 +489,8 @@ class Game {
       grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k], sled: aiSled(k) });
     }
     humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i], sled: p.sled }));
-    const msg: StartMsg = { t: 'start', track: this.ui.selectedTrack, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces } };
+    const msg: StartMsg = { t: 'start', track, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces } };
+    if (this.champ) msg.cup = { cup: this.champ.cup, race: this.champ.race };
     net.hostStart(msg);
     void this.startOnline(msg);
   }
@@ -464,6 +498,13 @@ class Game {
   private async startOnline(msg: StartMsg) {
     const net = this.net;
     if (!net) return;
+    // Guests keep their own copy of the cup table, started afresh with the cup's first race.
+    if (!msg.cup) this.champ = null;
+    else if (!net.isHost) {
+      if (msg.cup.race === 0 || !this.champ || this.champ.cup !== msg.cup.cup) this.champ = { cup: msg.cup.cup, race: msg.cup.race, points: {} };
+      else this.champ.race = msg.cup.race;
+    }
+    this.stopWatching();
     this.audio.start();
     await this.whenIdle();
     this.ui.closeModal();
@@ -503,7 +544,12 @@ class Game {
       if (this.mode === 'menu') this.ui.renderMenu();
     }
     if (this.mode === 'race') {
-      if (this.photo) {
+      if (this.replay || this.watch) {
+        if (this.input.consume('Escape', 'KeyP', 'Enter')) this.backToResults();
+        // Left and right switch which rider the camera follows.
+        const step = (this.input.consume('ArrowRight', 'KeyD') ? 1 : 0) - (this.input.consume('ArrowLeft', 'KeyA') ? 1 : 0);
+        if (step && this.watch) this.watchNext(race, step);
+      } else if (this.photo) {
         if (this.input.consume('Escape', 'KeyP')) this.exitPhoto();
       } else if (this.input.consume('Escape', 'KeyP')) {
         if (this.paused || (race.online && this.ui.modalOpen && !this.resultsShown)) this.setPaused(false);
@@ -515,7 +561,12 @@ class Game {
     }
 
     const player = race.player;
-    if (!this.paused) {
+    if (this.replay) {
+      // Play the recording back on a loop.
+      this.clock += dt;
+      this.replay.t = (this.replay.t + dt) % Math.max(1, race.replayLength);
+      race.showReplay(this.replay.t, dt);
+    } else if (!this.paused) {
       this.clock += dt;
       const inp = this.mode === 'race' ? this.input.read(dt) : null;
       // Simulate exactly up to this frame, in slices no longer than STEP, so
@@ -544,6 +595,22 @@ class Game {
     }
     this.input.endFrame();
 
+    // Dusk tracks: the light goes as the race does, and the headlight comes up with it.
+    if (world.theme.dusk) {
+      const k = this.mode === 'race' ? clamp((race.playerFraction() - 0.12) / 0.7, 0, 1) : 0;
+      world.setDarkness(k * k * (3 - 2 * k));
+      if (this.headlight) this.headlight.intensity = 420 * world.darkness;
+    }
+    // Crowd noise near the start line; the train whistles when it comes out of its tunnel within earshot.
+    if (player && this.mode === 'race') {
+      const tr = world.track;
+      const dStart = Math.hypot(player.pos.x - tr.px[tr.startIdx], player.pos.z - tr.pz[tr.startIdx]);
+      this.audio.setCrowd(this.paused ? 0 : 1 - dStart / 130);
+      const train = world.train;
+      if (train.running && !this.trainWasRunning) this.audio.whistle(1 - player.pos.distanceTo(train.pos) / 420);
+      this.trainWasRunning = train.running;
+    } else this.audio.setCrowd(0);
+
     const racing = this.mode === 'race' && !this.paused && !!player;
     this.audio.setEngine(
       player ? player.speed / SLED.maxSpeed : 0,
@@ -553,7 +620,7 @@ class Game {
     );
 
     const target = player ?? race.sleds.reduce((a, b) => (a.place < b.place ? a : b));
-    if (!this.paused) this.updateCamera(dt, target, world, !player);
+    if (!this.paused) this.updateCamera(dt, this.watch ?? target, world, !player || !!this.replay);
     if (this.photo && player) this.photoCamera(player, world);
     world.update(this.paused ? 0 : dt, this.camera, this.focus.copy(target.pos));
     if (this.mode === 'race' && player) this.ui.updateHud(this.hudState(race, player));
@@ -568,6 +635,7 @@ class Game {
 
   /** Free camera round the paused sled: where it is, in angles and distance. */
   private photo: { yaw: number; pitch: number; dist: number } | null = null;
+  private trainWasRunning = false;
 
   private enterPhoto() {
     const player = this.race?.player;
@@ -775,7 +843,7 @@ class Game {
       const coins = medal >= 0 ? MEDAL_COINS[medal] : 0;
       this.save.coins += coins;
       writeSave(this.save);
-      this.ui.showResults({ ...base, coins, trial: { medal, targets, best: improved ? time : before, improved } });
+      this.present({ ...base, coins, trial: { medal, targets, best: improved ? time : before, improved } });
       return;
     }
 
@@ -807,11 +875,11 @@ class Game {
         .sort((x, y) => y.points - x.points);
       const last = c.race >= cup.tracks.length - 1;
       const final = table.findIndex((row) => row.me) + 1;
-      if (last) this.save.cups[cup.id] = Math.min(this.save.cups[cup.id] ?? 99, final);
-      const coins = (RACE_COINS[player.place - 1] ?? 0) + (last ? (CUP_COINS[final - 1] ?? 0) : 0);
+      if (last && !online) this.save.cups[cup.id] = Math.min(this.save.cups[cup.id] ?? 99, final);
+      const coins = online ? 0 : (RACE_COINS[player.place - 1] ?? 0) + (last ? (CUP_COINS[final - 1] ?? 0) : 0);
       this.save.coins += coins;
       writeSave(this.save);
-      this.ui.showResults({ ...base, coins, hasNext: !last, champ: { cup: cup.name, race: c.race + 1, races: cup.tracks.length, table, final: last ? final : 0 } });
+      this.present({ ...base, coins, hasNext: !last, champ: { cup: cup.name, race: c.race + 1, races: cup.tracks.length, table, final: last ? final : 0 } });
       if (last) this.champ = null;
       return;
     }
@@ -820,8 +888,73 @@ class Game {
     const coins = online ? 0 : (RACE_COINS[player.place - 1] ?? 0);
     this.save.coins += coins;
     writeSave(this.save);
-    this.ui.showResults({ ...base, coins, eliminated: player.eliminated });
+    this.present({ ...base, coins, eliminated: player.eliminated });
   }
+
+  // ---------- After the flag: replay and spectating ----------
+
+  private lastResults: ResultsData | null = null;
+  /** Playing the race back, and how far through. */
+  private replay: { t: number } | null = null;
+  /** The rider the camera is following while spectating. */
+  private watch: Sled | null = null;
+
+  /** Shows the results and remembers them, so they can be brought back after a replay. */
+  private present(data: ResultsData) {
+    const race = this.race;
+    data.canWatch = !!race && race.sleds.some((s) => !s.isPlayer && !s.gone && !s.finished);
+    data.canReplay = !!race && race.replayLength > 3;
+    data.isHost = !!this.net?.isHost;
+    this.lastResults = data;
+    this.ui.showResults(data);
+  }
+
+  private startReplay() {
+    if (!this.race || this.race.replayLength < 3) return;
+    this.ui.closeModal();
+    this.ui.showHud(false);
+    this.replay = { t: 0 };
+    this.watch = null;
+    this.camSnap = true;
+    this.ui.showBar('Replay', 'Back to results');
+  }
+
+  private startWatching() {
+    const race = this.race;
+    if (!race) return;
+    this.ui.closeModal();
+    this.ui.showHud(false);
+    this.replay = null;
+    this.watch = race.player;
+    this.watchNext(race, 1);
+  }
+
+  private watchNext(race: Race, step: number) {
+    // Riders still on the course, in race order.
+    const field = race.sleds.filter((s) => !s.gone && !s.isPlayer).sort((a, b) => a.place - b.place);
+    if (!field.length) return;
+    const at = this.watch ? field.indexOf(this.watch) : -1;
+    this.watch = field[(at + step + field.length) % field.length];
+    this.camSnap = true;
+    this.ui.showBar(`Watching ${this.watch.name}  ·  ← → to switch`, 'Back to results');
+  }
+
+  private stopWatching() {
+    this.replay = null;
+    this.watch = null;
+    this.ui.showBar(null);
+  }
+
+  private backToResults() {
+    const race = this.race;
+    this.stopWatching();
+    this.camSnap = true;
+    if (!race || !this.lastResults) return;
+    this.lastResults.standings = race.standings();
+    this.ui.showHud(true, TRACKS[this.trackIndex]);
+    this.present(this.lastResults);
+  }
+
   private updateCamera(dt: number, sled: Sled, world: World, orbit: boolean) {
     const cam = this.camera;
     if (orbit) {

@@ -45,6 +45,8 @@ export interface StartMsg {
   difficulty: Difficulty;
   /** Index is the grid slot, front to back. */
   grid: GridEntry[];
+  /** Set when this race is part of an online cup: which cup, and which of its races (from 0). */
+  cup?: { cup: number; race: number };
   /** The host's surface settings, so everyone races the same road. */
   surfaces: SurfaceOptions;
 }

@@ -107,6 +107,70 @@ export class AudioEngine {
     src.stop(ctx.currentTime + 0.3);
   }
 
+  // ---------- Crowd and train ----------
+
+  private crowdGain?: GainNode;
+
+  /** How loud the crowd is, 0..1: main sets this from how near the start line the player is. */
+  setCrowd(level: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.noise) return;
+    if (!this.crowdGain) {
+      // A crowd is roughly noise in the range of voices, swelling and falling.
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 1100;
+      band.Q.value = 0.7;
+      const swell = ctx.createGain();
+      swell.gain.value = 0.7;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.45;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.3;
+      lfo.connect(depth).connect(swell.gain);
+      this.crowdGain = ctx.createGain();
+      this.crowdGain.gain.value = 0;
+      src.connect(band).connect(swell).connect(this.crowdGain).connect(this.master);
+      src.start();
+      lfo.start();
+    }
+    this.crowdGain.gain.setTargetAtTime(Math.min(1, Math.max(0, level)) * 0.16, ctx.currentTime, 0.25);
+  }
+
+  /** A steam whistle: two notes a third apart, with a wobble. */
+  whistle(volume: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || volume <= 0.01) return;
+    const t = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(volume * 0.22, t + 0.08);
+    out.gain.setValueAtTime(volume * 0.22, t + 0.9);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 1800;
+    soften.connect(out).connect(this.master);
+    for (const f of [587, 740]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const wob = ctx.createOscillator();
+      wob.frequency.value = 6;
+      const amt = ctx.createGain();
+      amt.gain.value = 5;
+      wob.connect(amt).connect(o.frequency);
+      o.connect(soften);
+      o.start(t);
+      wob.start(t);
+      o.stop(t + 1.35);
+      wob.stop(t + 1.35);
+    }
+  }
+
   // ---------- Music: a short looping tune, synthesised note by note ----------
 
   private musicGain?: GainNode;
