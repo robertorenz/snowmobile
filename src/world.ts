@@ -37,7 +37,7 @@ export interface Vehicle {
 
 /** Something to ride through and collect. */
 export interface Pickup {
-  kind: 'boost' | 'shield' | 'snowball';
+  kind: 'boost' | 'shield' | 'snowball' | 'repair';
   x: number;
   y: number;
   z: number;
@@ -166,6 +166,13 @@ export class World {
   private time = 0;
   readonly vehicles: Vehicle[] = [];
   readonly pickups: Pickup[] = [];
+  /** 0 clear to 1 thick: how heavy the weather is right now. */
+  weather = 0;
+  private snowSize = 70 * Math.min(window.devicePixelRatio, 2);
+  /** Deer and anything else alive on the course. */
+  get animals() {
+    return this.ambient.animals;
+  }
   private ambient!: Ambient;
 
   constructor(
@@ -908,8 +915,9 @@ export class World {
       boost: () => new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 1.0, 12), glow(0xf6a821)),
       shield: () => new THREE.Mesh(new THREE.OctahedronGeometry(0.62), glow(0x1ea7e1)),
       snowball: () => new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), glow(0xe9f2f8)),
+      repair: () => new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), glow(0x2fbf71)),
     };
-    const kinds: Pickup['kind'][] = ['boost', 'snowball', 'shield', 'boost', 'snowball'];
+    const kinds: Pickup['kind'][] = ['boost', 'snowball', 'repair', 'shield', 'boost', 'snowball', 'repair'];
     const from = track.startS + 150;
     const to = (track.closed ? track.length : track.finishIdx * track.ds) - 60;
     let k = Math.floor(rnd() * kinds.length);
@@ -1232,6 +1240,20 @@ export class World {
     this.sun.position.set(focus.x + (d[0] / l) * 200, focus.y + (d[1] / l) * 200, focus.z + (d[2] / l) * 200);
     this.spray.update(dt);
     this.ambient.update(dt);
+
+    // Weather drifts: every few minutes the air thickens and the snow comes down harder, then clears again.
+    const fog = this.scene.fog as THREE.Fog;
+    if (this.theme.fogFar > 500) {
+      const w = 0.5 + 0.5 * Math.sin(this.time * 0.035 + this.def.seed);
+      const k = w * w;
+      this.weather = k;
+      fog.far = this.theme.fogFar * (1 - 0.5 * k);
+      fog.near = this.theme.fogNear * (1 - 0.4 * k);
+      if (this.snowMat) {
+        this.snowMat.uniforms.uAlpha.value = (this.theme.night ? 0.6 : 0.85) * (0.55 + 0.75 * k);
+        this.snowMat.uniforms.uSize.value = this.snowSize * (0.8 + 0.8 * k);
+      }
+    }
     for (const p of this.pickups) {
       p.mesh.visible = p.respawn <= 0;
       p.mesh.rotation.y += dt * 2.2;

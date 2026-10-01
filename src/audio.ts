@@ -56,6 +56,7 @@ export class AudioEngine {
     wg.gain.value = 0;
     wind.connect(windFilter).connect(wg).connect(master);
     wind.start();
+    this.setMusic(this.musicOn);
   }
 
   setMuted(m: boolean) {
@@ -104,6 +105,72 @@ export class AudioEngine {
     src.connect(f).connect(g).connect(this.master);
     src.start(ctx.currentTime, Math.random());
     src.stop(ctx.currentTime + 0.3);
+  }
+
+  // ---------- Music: a short looping tune, synthesised note by note ----------
+
+  private musicGain?: GainNode;
+  private musicTimer = 0;
+  private musicStep = 0;
+  private musicNext = 0;
+  private musicOn = true;
+
+  setMusic(on: boolean) {
+    this.musicOn = on;
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    if (!this.musicGain) {
+      this.musicGain = ctx.createGain();
+      this.musicGain.gain.value = 0;
+      this.musicGain.connect(this.master);
+    }
+    this.musicGain.gain.setTargetAtTime(on ? 0.16 : 0, ctx.currentTime, 0.3);
+    if (on && !this.musicTimer) {
+      this.musicNext = ctx.currentTime + 0.1;
+      // Notes are scheduled a quarter of a second ahead, so timing doesn't depend on the frame rate.
+      this.musicTimer = window.setInterval(() => this.scheduleMusic(), 90);
+    } else if (!on && this.musicTimer) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = 0;
+    }
+  }
+
+  private scheduleMusic() {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicGain) return;
+    // Four bars: A minor, F, C, G. Each is a root for the bass and three chord notes for the arpeggio.
+    const bars = [
+      [110, 220, 261.63, 329.63],
+      [87.31, 174.61, 220, 261.63],
+      [130.81, 261.63, 329.63, 392],
+      [98, 196, 246.94, 293.66],
+    ];
+    const order = [1, 2, 3, 2, 1, 3, 2, 3];
+    const eighth = 60 / 132 / 2;
+    while (this.musicNext < ctx.currentTime + 0.25) {
+      const step = this.musicStep++;
+      const bar = bars[Math.floor(step / 8) % bars.length];
+      const beat = step % 8;
+      this.tone(bar[order[beat]] * 2, this.musicNext, eighth * 1.6, 0.22, 'triangle');
+      if (beat === 0 || beat === 3 || beat === 6) this.tone(bar[0], this.musicNext, eighth * 2.6, 0.5, 'sine');
+      // Every other pass, a slow line over the top.
+      if (Math.floor(step / 32) % 2 === 1 && beat % 4 === 0) this.tone(bar[3] * 2, this.musicNext, eighth * 3.8, 0.13, 'sine');
+      this.musicNext += eighth;
+    }
+  }
+
+  private tone(freq: number, at: number, dur: number, vol: number, type: OscillatorType) {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(this.musicGain!);
+    o.start(at);
+    o.stop(at + dur + 0.02);
   }
 
   fanfare() {

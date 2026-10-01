@@ -3,7 +3,7 @@ import { trackOutline } from './track';
 import { SaveData, GameMode, resultKey } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
-import { SLEDS, sledById } from './sleds';
+import { SLEDS, PAINTS, sledById } from './sleds';
 
 export interface UICallbacks {
   onSelectTrack(index: number): void;
@@ -15,6 +15,12 @@ export interface UICallbacks {
   onNext(): void;
   onToggleMute(): void;
   onMode(mode: GameMode): void;
+  /** Select a paint, buying it first if need be. False if there aren't enough coins. */
+  onPaint(id: string): boolean;
+  onChat(text: string): void;
+  onPhoto(): void;
+  onPhotoSave(): void;
+  onPhotoExit(): void;
   onCup(index: number): void;
   onSled(id: string): void;
   /** Picture of a snowmobile model, as an image URL. */
@@ -26,7 +32,7 @@ export interface UICallbacks {
   onLeaveRoom(): void;
 }
 
-export type SettingKey = 'ice' | 'stone' | 'grass' | 'mirror' | 'sound';
+export type SettingKey = 'ice' | 'stone' | 'grass' | 'mirror' | 'sound' | 'music';
 
 /** The online room this player is in, as shown on the menu. */
 export interface RoomView {
@@ -73,6 +79,8 @@ export interface ResultsData {
   /** Championship: where this race falls in the cup and the points table; final is the finishing position once the cup is over. */
   champ?: { cup: string; race: number; races: number; table: { name: string; points: number; me: boolean }[]; final: number };
   eliminated?: boolean;
+  /** Coins won in this race. */
+  coins?: number;
 }
 
 const standingRows = (standings: Standing[]) =>
@@ -241,6 +249,10 @@ export class UI {
                 `<span class="chip ${p.me ? 'me' : ''}">${escapeHtml(p.name)}${p.host ? '<small>host</small>' : ''}</span>`,
             )
             .join('')}</div>
+          <div class="chat">
+            <div class="chat-log" data-ref="chatlog">${this.chatHtml()}</div>
+            <input type="text" data-in="chat" maxlength="140" autocomplete="off" placeholder="Say something to the room…" />
+          </div>
           <div class="room-note">${
             room.racing
               ? 'A race is under way. You will join the next one.'
@@ -276,7 +288,7 @@ export class UI {
       <div class="menu-panel">
         <header class="brand">
           <div class="brand-mark">POWDER<span>RUSH</span></div>
-          <div class="brand-sub">Snowmobile Racing</div>
+          <div class="brand-sub">Snowmobile Racing<span class="coins" title="Coins: spend them on paint">${save.coins}</span></div>
         </header>
         ${roomBox}
         <div class="menu-actions">
@@ -308,6 +320,13 @@ export class UI {
       drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 4.5, 11);
     });
     this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
+    const chat = this.menu.querySelector<HTMLInputElement>('[data-in="chat"]');
+    chat?.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key !== 'Enter' || !chat.value.trim()) return;
+      this.cb.onChat(chat.value);
+      chat.value = '';
+    });
     this.menu.querySelector('[data-act="sled"]')?.addEventListener('click', () => this.showSleds());
     this.menu.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -486,6 +505,7 @@ export class UI {
       <div class="modal-actions column">
         <button class="btn primary" data-act="resume">${online ? 'Back to race' : 'Resume'}</button>
         ${online ? '' : '<button class="btn" data-act="restart">Restart race</button>'}
+        ${online ? '' : '<button class="btn" data-act="photo">Photo mode</button>'}
         <button class="btn" data-act="help">Controls</button>
         <button class="btn ghost" data-act="quit">${online ? 'Leave race' : 'Quit to menu'}</button>
       </div>`);
@@ -494,6 +514,7 @@ export class UI {
       restart: () => this.cb.onRestart(),
       quit: () => this.cb.onQuit(),
       help: () => this.showHelp(() => this.showPause(online)),
+      photo: () => this.cb.onPhoto(),
     });
   }
 
@@ -516,6 +537,11 @@ export class UI {
       <h2>Choose your snowmobile</h2>
       <p class="modal-lead">Each drives differently. Low grip means it slides; the Mammoth also shrugs off deep snow, rock and grass.</p>
       <div class="sled-grid">${cards}</div>
+      <div class="section-label">Paint <span class="coins">${this.save.coins}</span></div>
+      <div class="paints">${PAINTS.map((p) => {
+        const owned = this.save.paints.includes(p.id);
+        return `<button class="paint ${p.id === this.save.paint ? 'selected' : ''}" data-paint="${p.id}" title="${p.name}" ${!owned && this.save.coins < p.price ? 'disabled' : ''}><span style="background:${hex(p.color)}"></span><small>${owned ? p.name : p.price + ' coins'}</small></button>`;
+      }).join('')}</div>
       <div class="modal-actions"><button class="btn ghost" data-act="close">Close</button></div>`,
       true,
     );
@@ -528,7 +554,40 @@ export class UI {
         this.renderMenu();
       }),
     );
+    m.querySelectorAll<HTMLButtonElement>('[data-paint]').forEach((b) =>
+      b.addEventListener('click', () => {
+        // Buying or switching paint redraws the pictures in the new colour.
+        if (this.cb.onPaint(b.dataset.paint!)) this.showSleds();
+      }),
+    );
     this.bind(m, { close: () => this.closeModal() });
+  }
+
+  private chat: [string, string][] = [];
+
+  private chatHtml() {
+    return this.chat.map(([name, text]) => `<div><b>${escapeHtml(name)}</b> ${escapeHtml(text)}</div>`).join('');
+  }
+
+  /** A line of room chat arrived. */
+  addChat(name: string, text: string) {
+    this.chat.push([name, text]);
+    if (this.chat.length > 6) this.chat.shift();
+    const log = this.menu.querySelector('[data-ref="chatlog"]');
+    if (log) log.innerHTML = this.chatHtml();
+  }
+
+  private photoBar: HTMLElement | null = null;
+
+  /** The strip of controls shown in photo mode. */
+  showPhotoBar(show: boolean) {
+    if (!this.photoBar) {
+      this.photoBar = el(`<div class="photo-bar hidden"><span>Drag to look round · Scroll to zoom</span><button class="btn primary" data-act="save">Save picture</button><button class="btn" data-act="exit">Back</button></div>`);
+      this.root.appendChild(this.photoBar);
+      this.photoBar.querySelector('[data-act="save"]')!.addEventListener('click', () => this.cb.onPhotoSave());
+      this.photoBar.querySelector('[data-act="exit"]')!.addEventListener('click', () => this.cb.onPhotoExit());
+    }
+    this.photoBar.classList.toggle('hidden', !show);
   }
 
   showSettings() {
@@ -539,6 +598,7 @@ export class UI {
       ['grass', 'Grass patches', 'Grass showing through the snow', save.surfaces.grass],
       ['mirror', 'Rear-view mirror', 'Shown at the top of the screen while racing (V)', save.mirror],
       ['sound', 'Sound', 'Engine, wind and effects (M)', !save.muted],
+      ['music', 'Music', 'The soundtrack', save.music],
     ];
     const m = this.openModal(
       `
@@ -717,6 +777,7 @@ export class UI {
       else if (d.playerPlace > 3) notes.push(`<div class="note">Finish in the top 3 to unlock the next level.</div>`);
     }
 
+    if (d.coins) notes.unshift(`<div class="note good">+${d.coins} coins</div>`);
     const m = this.openModal(
       `
       <div class="result-head ${tone}">

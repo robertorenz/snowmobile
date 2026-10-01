@@ -114,6 +114,35 @@ export const SLEDS: SledSpec[] = [
   },
 ];
 
+/** Paint for the player's sled. The first is free; the rest are bought with coins won racing. */
+export interface Paint {
+  id: string;
+  name: string;
+  color: number;
+  price: number;
+}
+
+export const PAINTS: Paint[] = [
+  { id: 'amber', name: 'Amber', color: 0xf6a821, price: 0 },
+  { id: 'crimson', name: 'Crimson', color: 0xd8343a, price: 150 },
+  { id: 'cobalt', name: 'Cobalt', color: 0x1e6fb0, price: 150 },
+  { id: 'emerald', name: 'Emerald', color: 0x2e9e5b, price: 150 },
+  { id: 'teal', name: 'Teal', color: 0x13b5c2, price: 200 },
+  { id: 'ivory', name: 'Ivory', color: 0xeef3f7, price: 200 },
+  { id: 'tangerine', name: 'Tangerine', color: 0xff6f3c, price: 250 },
+  { id: 'graphite', name: 'Graphite', color: 0x3a4450, price: 250 },
+  { id: 'gold', name: 'Gold', color: 0xd4a017, price: 500 },
+];
+
+export function paintById(id: string | undefined) {
+  return PAINTS.find((p) => p.id === id) ?? PAINTS[0];
+}
+
+/** Coins paid out by finishing place in a race, by time-trial medal, and by final position in a cup. */
+export const RACE_COINS = [60, 40, 30, 20, 15, 10];
+export const MEDAL_COINS = [80, 50, 30];
+export const CUP_COINS = [200, 120, 80];
+
 export const DEFAULT_SLED = SLEDS[0];
 
 export function sledById(id: string | undefined) {

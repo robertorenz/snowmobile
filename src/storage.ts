@@ -16,6 +16,11 @@ export interface SaveData {
   muted: boolean;
   /** Rear-view mirror shown while racing. */
   mirror: boolean;
+  music: boolean;
+  /** Coins won, the paints bought with them, and the one in use. */
+  coins: number;
+  paints: string[];
+  paint: string;
   /** What the Race button starts. */
   mode: GameMode;
   cup: number;
@@ -35,7 +40,7 @@ export interface SaveData {
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, music: true, coins: 0, paints: ['amber'], paint: 'amber', mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
 
 export function loadSave(): SaveData {
   try {

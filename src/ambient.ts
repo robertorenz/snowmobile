@@ -9,6 +9,8 @@ import { mulberry32 } from './util';
  * and then, and a steam train working along the mountainside.
  */
 export class Ambient {
+  /** Deer on or near the road: where they are, and a way to scare them off. */
+  readonly animals: { x: number; z: number; onRoad: boolean; scare: () => void }[] = [];
   private time = 0;
   private updaters: ((dt: number, t: number) => void)[] = [];
   private rnd: () => number;
@@ -41,11 +43,194 @@ export class Ambient {
       }
     }
     this.buildTrain();
+    this.buildDeer();
+    this.buildCrowd();
+    this.buildCabins();
   }
 
   update(dt: number) {
     this.time += dt;
     for (const u of this.updaters) u(dt, this.time);
+  }
+
+  // ---------- Deer ----------
+
+  /** A few deer that wander across the road now and then. Hit one and it costs you; they bolt if you do. */
+  private buildDeer() {
+    const { track, scene } = this.world;
+    const rnd = this.rnd;
+    const hide = new THREE.MeshStandardMaterial({ color: 0x8a5a36, roughness: 0.9 });
+    const pale = new THREE.MeshStandardMaterial({ color: 0xd9c7a8, roughness: 0.9 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.9 });
+    let placed = 0;
+    let tries = 0;
+    while (placed < 3 && tries++ < 200) {
+      const i = Math.floor(rnd() * track.n);
+      if (track.walled[i] || track.asphalt[i] || track.respawn[i] !== i || i * track.ds < track.startS + 220 || track.hw[i] < 6) continue;
+      if (this.world.terrain.iceAt(track.px[i], track.pz[i]) > 0) continue;
+      placed++;
+      const deer = new THREE.Group();
+      const part = (w: number, h: number, l: number, mat: THREE.Material, x: number, y: number, z: number) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        deer.add(m);
+        return m;
+      };
+      // Built facing +Z.
+      part(0.5, 0.6, 1.4, hide, 0, 1.15, 0);
+      part(0.3, 0.7, 0.3, hide, 0, 1.6, 0.75).rotation.x = 0.5;
+      part(0.28, 0.3, 0.5, hide, 0, 1.98, 1.02);
+      part(0.3, 0.25, 0.12, pale, 0, 1.2, -0.72);
+      const legs = [
+        part(0.13, 0.9, 0.13, dark, 0.17, 0.45, 0.5),
+        part(0.13, 0.9, 0.13, dark, -0.17, 0.45, 0.5),
+        part(0.13, 0.9, 0.13, dark, 0.17, 0.45, -0.5),
+        part(0.13, 0.9, 0.13, dark, -0.17, 0.45, -0.5),
+      ];
+      for (const l of legs) l.geometry.translate(0, -0.45, 0), (l.position.y = 0.9);
+      for (const side of [1, -1]) {
+        part(0.05, 0.5, 0.05, pale, side * 0.14, 2.35, 0.95).rotation.z = -side * 0.5;
+        part(0.05, 0.3, 0.05, pale, side * 0.3, 2.55, 0.95).rotation.z = side * 0.3;
+      }
+      scene.add(deer);
+
+      const reach = track.hw[i] + 14;
+      let lat = (rnd() < 0.5 ? -1 : 1) * reach;
+      let dir = 0;
+      let wait = 3 + rnd() * 12;
+      let speed = 3.6;
+      const animal = {
+        x: 0,
+        z: 0,
+        onRoad: false,
+        scare: () => {
+          // Bolt for whichever side is nearer.
+          dir = lat >= 0 ? 1 : -1;
+          speed = 11;
+        },
+      };
+      this.animals.push(animal);
+      this.updaters.push((dt, t) => {
+        if (dir === 0) {
+          wait -= dt;
+          if (wait <= 0) {
+            dir = lat > 0 ? -1 : 1;
+            speed = 3.6;
+          }
+        } else {
+          lat += dir * speed * dt;
+          if (Math.abs(lat) >= reach) {
+            lat = Math.sign(lat) * reach;
+            dir = 0;
+            wait = 8 + rnd() * 16;
+          }
+        }
+        animal.x = track.px[i] + track.lx[i] * lat;
+        animal.z = track.pz[i] + track.lz[i] * lat;
+        animal.onRoad = Math.abs(lat) < track.hw[i] + 1;
+        deer.position.set(animal.x, this.world.terrain.height(animal.x, animal.z), animal.z);
+        // Face the way it is walking (or last walked): across the road.
+        const face = (dir !== 0 ? dir : lat > 0 ? 1 : -1) > 0 ? 1 : -1;
+        deer.rotation.y = Math.atan2(track.lx[i] * face, track.lz[i] * face);
+        const stride = dir !== 0 ? Math.sin(t * speed * 2.6) * 0.5 : 0;
+        legs[0].rotation.x = legs[3].rotation.x = stride;
+        legs[1].rotation.x = legs[2].rotation.x = -stride;
+      });
+    }
+  }
+
+  // ---------- Spectators at the start ----------
+
+  private buildCrowd() {
+    const { track, terrain, scene } = this.world;
+    const rnd = this.rnd;
+    const spots: [number, number, number][] = [];
+    const a = track.startIdx;
+    for (let k = -14; k <= 26; k++) {
+      const i = track.wrap(a + k);
+      if (track.walled[i]) continue;
+      for (const side of [1, -1]) {
+        for (let row = 0; row < 2; row++) {
+          if (rnd() < 0.3) continue;
+          const off = side * (track.hw[i] + 3.2 + row * 1.5 + rnd() * 0.6);
+          const x = track.px[i] + track.lx[i] * off + (rnd() - 0.5) * 0.8;
+          const z = track.pz[i] + track.lz[i] * off + (rnd() - 0.5) * 0.8;
+          spots.push([x, terrain.height(x, z), z]);
+        }
+      }
+    }
+    if (!spots.length) return;
+    const body = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.24, 0.85, 3, 8), new THREE.MeshStandardMaterial({ roughness: 0.85 }), spots.length);
+    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshStandardMaterial({ color: 0xe2b99a, roughness: 0.8 }), spots.length);
+    const coats = [0xd8343a, 0x1e6fb0, 0xf6a821, 0x2e9e5b, 0xf3f6f8, 0x13b5c2, 0xff6f3c, 0x34495e];
+    const m = new THREE.Matrix4();
+    const tint = new THREE.Color();
+    const phases = spots.map(() => rnd() * 6);
+    const jumpy = spots.map(() => rnd() < 0.5);
+    spots.forEach((_s, j) => body.setColorAt(j, tint.setHex(coats[Math.floor(rnd() * coats.length)])));
+    body.castShadow = true;
+    body.frustumCulled = head.frustumCulled = false;
+    scene.add(body, head);
+    // Half the crowd bounces on the spot, cheering.
+    this.updaters.push((_dt, t) => {
+      spots.forEach(([x, y, z], j) => {
+        const hop = jumpy[j] ? Math.abs(Math.sin(t * 5 + phases[j])) * 0.22 : 0;
+        body.setMatrixAt(j, m.makeTranslation(x, y + 0.67 + hop, z));
+        head.setMatrixAt(j, m.makeTranslation(x, y + 1.5 + hop, z));
+      });
+      body.instanceMatrix.needsUpdate = true;
+      head.instanceMatrix.needsUpdate = true;
+    });
+  }
+
+  // ---------- Cabins ----------
+
+  private buildCabins() {
+    const { terrain, scene, theme, colliders } = this.world;
+    const rnd = this.rnd;
+    const logs = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: theme.meadow ? 0x5b3a2a : 0xeef3f7, roughness: 0.9 });
+    const glow = new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffb84a, emissiveIntensity: theme.night ? 2.4 : 0.9 });
+    const stone = new THREE.MeshStandardMaterial({ color: 0x5d6068, roughness: 1 });
+    // A roof is a prism: a triangle pushed along the cabin's length.
+    const gable = new THREE.Shape();
+    gable.moveTo(-3.3, 0);
+    gable.lineTo(0, 2.1);
+    gable.lineTo(3.3, 0);
+    gable.closePath();
+    const roofGeo = new THREE.ExtrudeGeometry(gable, { depth: 6.6, bevelEnabled: false }).translate(0, 0, -3.3);
+    let placed = 0;
+    let tries = 0;
+    while (placed < 5 && tries++ < 400) {
+      const x = terrain.minX + rnd() * terrain.sizeX;
+      const z = terrain.minZ + rnd() * terrain.sizeZ;
+      const d = terrain.edgeAt(x, z);
+      if (d < 16 || d > 70 || terrain.wetAt(x, z) > 0 || terrain.iceAt(x, z) > 0) continue;
+      const n = terrain.normal(x, z, new THREE.Vector3());
+      if (n.y < 0.93) continue;
+      placed++;
+      const cabin = new THREE.Group();
+      const add = (geo: THREE.BufferGeometry, mat: THREE.Material, px: number, py: number, pz: number) => {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(px, py, pz);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        cabin.add(mesh);
+      };
+      add(new THREE.BoxGeometry(5.6, 2.8, 6), logs, 0, 1.4, 0);
+      add(roofGeo, roofMat, 0, 2.8, 0);
+      add(new THREE.BoxGeometry(1.1, 1.9, 0.12), new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 0.9 }), 0, 0.95, 3.02);
+      for (const side of [1, -1]) {
+        add(new THREE.BoxGeometry(0.9, 0.8, 0.1), glow, side * 1.7, 1.6, 3.03);
+        add(new THREE.BoxGeometry(0.1, 0.8, 1.1), glow, side * 2.83, 1.6, 0);
+      }
+      add(new THREE.BoxGeometry(0.8, 1.9, 0.8), stone, 1.6, 4.1, -1.4);
+      cabin.position.set(x, terrain.height(x, z) - 0.25, z);
+      cabin.rotation.y = rnd() * Math.PI * 2;
+      scene.add(cabin);
+      colliders.add({ x, z, r: 4.2 });
+    }
   }
 
   // ---------- Clouds ----------

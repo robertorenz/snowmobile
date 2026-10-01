@@ -60,6 +60,7 @@ type Msg =
   | { t: 'end' }
   | { t: 's'; s: SledNet }
   | { t: 'w'; l: SledNet[] }
+  | { t: 'chat'; name: string; text: string }
   /** A snowball landed on the sled in this grid slot. */
   | { t: 'hit'; slot: number };
 
@@ -69,6 +70,14 @@ export function cleanName(name: unknown) {
     .trim()
     .slice(0, 14);
   return s || 'Rider';
+}
+
+/** A chat line: one line of ordinary text, no control characters, at most 140 long. */
+export function cleanChat(text: unknown) {
+  return String(text ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .trim()
+    .slice(0, 140);
 }
 
 export function cleanCode(code: string) {
@@ -91,6 +100,8 @@ export class NetSession {
   /** Host ended the race and returned everyone to the lobby. */
   onEnd: () => void = () => {};
   onStates: (list: SledNet[], from: string) => void = () => {};
+  /** A chat line for the room. */
+  onChat: (name: string, text: string) => void = () => {};
   /** Someone else's snowball hit a sled; whoever drives that slot applies it. */
   onHit: (slot: number) => void = () => {};
   /** A player dropped out (host only). */
@@ -209,6 +220,14 @@ export class NetSession {
         if (p) p.sled = String(msg.sled ?? '').slice(0, 24);
         this.sendLobby();
         this.onLobby();
+      } else if (msg.t === 'chat') {
+        // The name comes from the lobby, not from the message, so nobody can speak as someone else.
+        const who = this.lobby.players.find((q) => q.id === id);
+        const line: Msg = { t: 'chat', name: who?.name ?? 'Rider', text: cleanChat(msg.text) };
+        if (line.text) {
+          this.broadcast(line);
+          this.onChat(line.name, line.text);
+        }
       } else if (msg.t === 'hit') {
         // Pass it on to everyone else, and take it ourselves in case it's one of ours.
         for (const [other, c] of this.conns) if (other !== id && c.open) c.send(msg);
@@ -304,11 +323,23 @@ export class NetSession {
     else if (msg.t === 'end') this.onEnd();
     else if (msg.t === 'w') this.onStates(msg.l, HOST_ID);
     else if (msg.t === 'hit') this.onHit(msg.slot);
+    else if (msg.t === 'chat') this.onChat(cleanName(msg.name), cleanChat(msg.text));
   }
 
   /** Client: send our own sled to the host. */
   sendState(s: SledNet) {
     if (this.hostConn?.open) this.hostConn.send({ t: 's', s } satisfies Msg);
+  }
+
+  /** Say something to the room. */
+  sendChat(text: string) {
+    const clean = cleanChat(text);
+    if (!clean) return;
+    if (this.isHost) {
+      const name = this.lobby.players[0].name;
+      this.broadcast({ t: 'chat', name, text: clean });
+      this.onChat(name, clean);
+    } else if (this.hostConn?.open) this.hostConn.send({ t: 'chat', name: '', text: clean } satisfies Msg);
   }
 
   /** Report that our snowball hit the sled in a slot somebody else drives. */

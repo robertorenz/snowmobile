@@ -12,12 +12,73 @@ export class Input {
 
   constructor() {
     window.addEventListener('keydown', (e) => {
+      // Typing a name or a chat message isn't driving.
+      if (e.target instanceof HTMLInputElement) return;
       if (GAME_KEYS.has(e.code) && this.enabled) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('touchstart', () => this.buildTouch(), { once: true, passive: true });
+  }
+
+  private pad: HTMLElement | null = null;
+
+  /**
+   * On-screen buttons for phones and tablets. Built the first time the screen
+   * is touched, so a desktop player never sees them. Each button behaves like
+   * holding a key.
+   */
+  private buildTouch() {
+    if (this.pad) return;
+    const pad = (this.pad = document.createElement('div'));
+    pad.className = 'touch hidden';
+    pad.innerHTML = `
+      <div class="touch-left">
+        <button data-code="ArrowLeft" aria-label="Steer left">&#9664;</button>
+        <button data-code="ArrowRight" aria-label="Steer right">&#9654;</button>
+      </div>
+      <div class="touch-right">
+        <div class="touch-row">
+          <button class="small" data-code="KeyF">FLIP</button>
+          <button class="small" data-code="KeyE">THROW</button>
+          <button class="small" data-code="Space">BOOST</button>
+        </div>
+        <div class="touch-row">
+          <button data-code="ArrowDown">BRAKE</button>
+          <button class="gas" data-code="ArrowUp">GAS</button>
+        </div>
+      </div>
+      <button class="touch-pause" data-code="Escape" aria-label="Pause">II</button>`;
+    document.body.appendChild(pad);
+    pad.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      const code = b.dataset.code!;
+      const down = (e: PointerEvent) => {
+        e.preventDefault();
+        b.setPointerCapture(e.pointerId);
+        this.keys.add(code);
+        this.pressed.add(code);
+        b.classList.add('held');
+      };
+      const up = () => {
+        this.keys.delete(code);
+        b.classList.remove('held');
+      };
+      b.addEventListener('pointerdown', down);
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
+    });
+    pad.classList.toggle('hidden', !this.touchWanted);
+  }
+
+  private touchWanted = false;
+
+  /** Show the touch buttons (while racing) or hide them. */
+  showTouch(show: boolean) {
+    if (show === this.touchWanted) return;
+    this.touchWanted = show;
+    this.pad?.classList.toggle('hidden', !show);
   }
 
   /** True once per key press. */

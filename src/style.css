@@ -1241,3 +1241,160 @@ kbd {
 .result-place {
   font-size: 34px;
 }
+
+/* ---------- Touch controls ---------- */
+
+.touch {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  z-index: 5;
+}
+.touch button {
+  pointer-events: auto;
+  touch-action: none;
+  min-width: 84px;
+  height: 84px;
+  padding: 0 14px;
+  color: var(--white);
+  font: 800 16px var(--font);
+  letter-spacing: 0.06em;
+  background: rgba(10, 24, 38, 0.55);
+  border: 2px solid rgba(160, 200, 230, 0.4);
+  border-radius: 20px;
+}
+.touch button.held {
+  background: rgba(30, 167, 225, 0.6);
+}
+.touch button.small {
+  min-width: 70px;
+  height: 54px;
+  font-size: 13px;
+}
+.touch button.gas {
+  background: rgba(246, 168, 33, 0.5);
+  border-color: var(--amber);
+}
+.touch-left,
+.touch-right {
+  position: absolute;
+  bottom: 22px;
+  display: flex;
+  gap: 12px;
+}
+.touch-left {
+  left: 18px;
+}
+.touch-right {
+  right: 18px;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.touch-row {
+  display: flex;
+  gap: 10px;
+}
+.touch .touch-pause {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 56px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+/* ---------- Coins, paint, chat, photo mode ---------- */
+
+.coins {
+  margin-left: 12px;
+  padding: 2px 9px 2px 22px;
+  color: #1c1303;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background:
+    radial-gradient(circle at 11px 50%, #fff3c4 0 3px, #d4a017 3.5px 6px, transparent 6.5px),
+    var(--amber);
+  border-radius: 999px;
+}
+.paints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.paint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 78px;
+  padding: 7px 4px;
+  color: var(--white);
+  background: rgba(23, 51, 77, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.paint span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+.paint small {
+  font-size: 11px;
+  color: #cfdde9;
+}
+.paint.selected {
+  border-color: var(--amber);
+  box-shadow: inset 0 0 0 1px var(--amber);
+}
+.paint:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.chat {
+  margin-top: 9px;
+}
+.chat-log {
+  max-height: 84px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  color: #d5e3ee;
+  user-select: text;
+}
+.chat-log b {
+  color: var(--ice);
+  margin-right: 4px;
+}
+.chat input {
+  width: 100%;
+  margin-top: 5px;
+  padding: 6px 9px;
+  color: var(--white);
+  font: inherit;
+  font-size: 13px;
+  background: var(--navy-950);
+  border: 1px solid rgba(160, 200, 230, 0.3);
+  border-radius: 7px;
+}
+.photo-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #d5e3ee;
+  font-size: 14px;
+  background: rgba(10, 24, 38, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  pointer-events: auto;
+}

@@ -87,6 +87,12 @@ export class Sled {
   /** The item being carried, if any. */
   item: 'snowball' | null = null;
 
+  /** 0 fresh to 1 wrecked. Knocks cost top speed until the sled is repaired. */
+  damage = 0;
+  /** True while the current knock has already been counted as damage. */
+  hurt = false;
+  /** The avalanche (by number) that last buried this sled, so each one only does it once. */
+  buriedBy = 0;
   /** Knocked out of an elimination race, and in what order (later is better). */
   eliminated = false;
   elimOrder = 0;
@@ -295,7 +301,7 @@ export class Sled {
       this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
       const rough = 1 - (1 - (patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1)) * D.rough;
-      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough) * (1 + 0.09 * this.draft);
+      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough) * (1 + 0.09 * this.draft) * (1 - 0.22 * this.damage);
       const bite = onIce ? P.iceTraction : 1;
       const acc = P.accel * D.accel * (this.boosting ? P.boostAccel : 1) * bite;
 

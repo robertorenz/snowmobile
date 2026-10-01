@@ -74,6 +74,8 @@ export interface TrackDef {
   crags?: number;
   /** Waterfalls beside the course. gap is from the track edge; 'downstream' ones face along the track to feed a river. */
   waterfalls?: { at: number; side: 1 | -1; gap: number; facing?: 'track' | 'downstream' }[];
+  /** An avalanche that breaks loose behind the riders at this point (0..1 of the length) and chases them for length metres. */
+  avalanche?: { at: number; length: number };
   /** Crossings, each placed at a 0..1 fraction of the track's length. Put them on straights. */
   crossings?: { at: number; kind: CrossingKind }[];
   /** A frozen lake: an ellipse of flat, slippery ice at height y. */
@@ -318,6 +320,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'glacier-run',
+    avalanche: { at: 0.34, length: 750 },
     par: 100,
     plunges: [
       { at: 0.24, length: 190, height: 65 },
@@ -449,6 +452,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'whiteout-summit',
+    avalanche: { at: 0.58, length: 800 },
     par: 134,
     plunges: [
       { at: 0.16, length: 190, height: 65 },
@@ -968,6 +972,7 @@ export const TRACKS: TrackDef[] = [
   },
   {
     id: 'widowmaker',
+    avalanche: { at: 0.5, length: 700 },
     par: 101,
     name: 'Widowmaker',
     blurb: 'Under your own bridge, into the dark, then straight down the mountain. Nothing here is fair.',
@@ -1065,7 +1070,7 @@ export const CUPS: CupDef[] = [
 export const CUP_POINTS = [10, 7, 5, 3, 2, 1];
 
 /** Time-trial medal times as multiples of a track's par: gold, silver, bronze. */
-export const MEDAL_FACTORS = [1.0, 1.1, 1.25];
+export const MEDAL_FACTORS = [1.03, 1.12, 1.27];
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 

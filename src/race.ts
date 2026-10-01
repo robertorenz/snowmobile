@@ -9,7 +9,19 @@ import { SLEDS, DEFAULT_SLED, sledById } from './sleds';
 import { buildSledModel } from './sledModel';
 
 export type RacePhase = 'waiting' | 'countdown' | 'racing' | 'finished';
-export type RaceEvent = 'count' | 'go' | 'lap' | 'final-lap' | 'finish' | 'pickup' | 'throw' | 'struck' | 'knockout' | 'eliminated';
+export type RaceEvent =
+  | 'count'
+  | 'go'
+  | 'lap'
+  | 'final-lap'
+  | 'finish'
+  | 'pickup'
+  | 'throw'
+  | 'struck'
+  | 'knockout'
+  | 'eliminated'
+  | 'avalanche'
+  | 'buried';
 
 export const RACERS = 6;
 export const AI_NAMES = ['Lindqvist', 'Tremblay', 'Yukimura', 'Kowalski', 'Halvorsen', 'Aspen'];
@@ -34,6 +46,8 @@ export interface RaceOptions {
   mode?: RaceMode;
   /** A recorded run to race against in a time trial: x, y, z, yaw every GHOST_STEP seconds. */
   ghost?: number[] | null;
+  /** Colour of the player's sled in a solo race. */
+  paint?: number;
 }
 
 /** Seconds between samples of a recorded run. */
@@ -80,6 +94,9 @@ export class Race {
   /** Grid slots of sleds driven elsewhere that our snowballs have hit; main sends these on. */
   pendingHits: number[] = [];
   private snowballs: { s: number; lateral: number; speed: number; owner: Sled; life: number; mesh: THREE.Mesh }[] = [];
+  /** The avalanche, once it has broken loose: how far down the course its front is, and how far it will run. */
+  avalanche: { front: number; end: number; id: number; mesh: THREE.Group } | null = null;
+  private avalanches = 0;
   readonly mode: RaceMode;
   /** The player's run so far, sampled for saving as a ghost. */
   readonly recording: number[] = [];
@@ -112,6 +129,7 @@ export class Race {
     this.online = !!net;
     // A time trial has no one else on the course.
     const solo = soloGrid(attract, sled);
+    if (opts.paint !== undefined) for (const g of solo) if (g.kind === 'human') g.color = opts.paint;
     const grid = (this.grid = net ? net.grid : this.mode === 'trial' ? solo.filter((g) => g.kind === 'human') : solo);
     this.knockoutEvery = Math.max(14, (def.par ?? 120) / RACERS);
     this.knockoutIn = this.knockoutEvery;
@@ -318,6 +336,71 @@ export class Race {
     const track = world.track;
     const p = this.player;
 
+    // Damage: each hard knock takes a little off the sled's top speed until it's repaired.
+    for (const s of this.sleds) {
+      if (s.remote || s.gone) continue;
+      if (s.impact > 6) {
+        if (!s.hurt) s.damage = Math.min(1, s.damage + 0.05 + (s.impact - 6) * 0.018);
+        s.hurt = true;
+      } else s.hurt = false;
+    }
+
+    // Deer: run into one and you're knocked back; it bolts.
+    for (const a of world.animals) {
+      if (!a.onRoad) continue;
+      for (const s of this.sleds) {
+        if (s.remote || s.gone || Math.hypot(s.pos.x - a.x, s.pos.z - a.z) > 1.7) continue;
+        s.struck();
+        a.scare();
+        if (s === p) this.events.push('struck');
+      }
+    }
+
+    // Avalanche: breaks loose behind the leading rider and runs down the course faster than most can ride.
+    const av = track.def.avalanche;
+    if (av && !this.avalanche && this.avalanches === 0) {
+      const lead = Math.max(...this.humans.filter((h) => !h.gone).map((h) => h.progress), -Infinity);
+      if (lead > av.at * track.length) {
+        const mesh = new THREE.Group();
+        const snow = new THREE.MeshStandardMaterial({ color: 0xf4f8fc, roughness: 1, flatShading: true });
+        for (let k = 0; k < 16; k++) {
+          const lump = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6 + Math.random() * 2.2, 1), snow);
+          lump.userData.lat = (Math.random() * 2 - 1) * 14;
+          lump.userData.back = Math.random() * 16;
+          mesh.add(lump);
+        }
+        world.scene.add(mesh);
+        this.avalanche = { front: av.at * track.length - 150, end: av.at * track.length + av.length, id: ++this.avalanches, mesh };
+        this.events.push('avalanche');
+      }
+    }
+    const slide = this.avalanche;
+    if (slide) {
+      slide.front += 37 * dt;
+      for (const lump of slide.mesh.children) {
+        const i = track.wrap(Math.round((slide.front - lump.userData.back) / track.ds));
+        const x = track.px[i] + track.lx[i] * lump.userData.lat;
+        const z = track.pz[i] + track.lz[i] * lump.userData.lat;
+        lump.position.set(x, world.ground(x, z, i) + 1.2 + Math.sin(this.time * 9 + lump.userData.lat) * 0.6, z);
+        lump.rotation.x += dt * 6;
+        if (Math.random() < 0.5) world.spray.emit(x, lump.position.y + 1, z, (Math.random() - 0.5) * 8, 3 + Math.random() * 6, (Math.random() - 0.5) * 8);
+      }
+      for (const s of this.sleds) {
+        if (s.remote || s.gone || s.finished || s.buriedBy === slide.id) continue;
+        if (s.progress < slide.front - 3 && s.progress > slide.front - 45) {
+          // Buried: dug out at a standstill once it has gone by.
+          s.buriedBy = slide.id;
+          s.vel.set(0, 0, 0);
+          s.impact = Math.max(s.impact, 10);
+          if (s === p) this.events.push('buried');
+        }
+      }
+      if (slide.front > slide.end) {
+        world.scene.remove(slide.mesh);
+        this.avalanche = null;
+      }
+    }
+
     // Slipstream: tucked in close behind another sled, the air is easier.
     for (const s of this.sleds) {
       if (s.remote || s.gone) continue;
@@ -339,7 +422,11 @@ export class Race {
       for (const s of this.sleds) {
         if (s.remote || s.gone) continue;
         if (Math.hypot(s.pos.x - item.x, s.pos.z - item.z) > 2.3 || Math.abs(s.pos.y + 1 - item.y) > 2.6) continue;
-        if (item.kind === 'boost') s.boost = 1;
+        if (item.kind === 'repair') {
+          // Nothing to mend: leave it for someone who needs it.
+          if (s.damage < 0.05) continue;
+          s.damage = 0;
+        } else if (item.kind === 'boost') s.boost = 1;
         else if (item.kind === 'shield') s.shield = true;
         else s.item = 'snowball';
         item.respawn = 7;
@@ -545,6 +632,7 @@ export class Race {
 
   dispose() {
     if (this.ghost) this.world.scene.remove(this.ghost);
+    if (this.avalanche) this.world.scene.remove(this.avalanche.mesh);
     for (const b of this.snowballs) this.world.scene.remove(b.mesh);
     for (const item of this.world.pickups) item.respawn = 0;
     for (const s of this.sleds) {
