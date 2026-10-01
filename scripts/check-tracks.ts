@@ -30,4 +30,10 @@ for (const def of TRACKS) {
       `min radius ${(1 / maxK).toFixed(0).padStart(4)} m | max grade ${(maxSlope * 100).toFixed(0).padStart(3)}% | ` +
       `min separation ${minSep.toFixed(0)} m at ${sepAt} | width ${(Math.min(...t.hw) * 2).toFixed(0)}-${(Math.max(...t.hw) * 2).toFixed(0)} m | ${t.obstacles.length} obstacles`,
   );
+  // Crossings want a straight run-up and landing: report the tightest radius within 110 m before and 70 m after.
+  for (const c of t.crossings) {
+    let k = 0;
+    for (let i = Math.round((c.s - 110) / t.ds); i < (c.s + 70) / t.ds; i++) k = Math.max(k, Math.abs(t.curv[t.wrap(i)]));
+    console.log(`    ${c.kind.padEnd(8)} at s=${c.s.toFixed(0).padStart(5)}  tightest radius nearby ${(1 / Math.max(k, 1e-5)).toFixed(0)} m  width ${(t.hw[c.idx] * 2).toFixed(0)} m`);
+  }
 }

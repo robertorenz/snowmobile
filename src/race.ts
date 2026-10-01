@@ -139,6 +139,8 @@ export class Race {
       if (this.countdown > 0) this.countdown -= dt;
     }
     const frozen = this.phase === 'countdown' || this.phase === 'waiting';
+    // Traffic runs off the race clock, so every computer in an online race sees the same cars.
+    world.setRaceTime(this.time);
 
     if (!frozen) {
       // AI pace leans toward the humans still racing.

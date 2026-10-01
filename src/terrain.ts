@@ -12,6 +12,7 @@ const BUCKET = 50;
 /** How far the river bed sits below the track, and the water surface above the bed. */
 export const RIVER_DEPTH = 3.6;
 export const RIVER_WATER = 2.2;
+export const CHASM_DEPTH = 14;
 
 /**
  * Heightmap terrain shaped around a track: flat across the racing surface,
@@ -138,6 +139,7 @@ export class Terrain {
         let trackH = far;
         let side = 1;
         let hw = track.halfWidth;
+        let pathS = 0;
         if (bi >= 0) {
           hw = track.hw[bi];
           dd = Math.min(FAR, Math.sqrt(best));
@@ -145,6 +147,7 @@ export class Terrain {
           const rz = z - track.pz[bi];
           const along = clamp(rx * track.tx[bi] + rz * track.tz[bi], -track.ds, track.ds);
           trackH = track.py[bi] + along * track.slope[bi];
+          pathS = bi * track.ds + along;
           side = rx * track.lx[bi] + rz * track.lz[bi] >= 0 ? 1 : -1;
         }
 
@@ -166,6 +169,21 @@ export class Terrain {
             const m = (1 - smoothstep(river.width / 2, river.width / 2 + 6, Math.abs(dd * side - centre))) * reach;
             h = h * (1 - m) + (trackH - RIVER_DEPTH) * m;
             wet[idx] = m;
+          }
+        }
+        // Crossings: a river or chasm cut straight across the course, or a level bed for a highway.
+        for (const c of track.crossings) {
+          if (bi < 0 || c.kind === 'gate') continue;
+          const q = Math.abs(pathS - c.s);
+          if (q > c.half + 12) continue;
+          const reach = 1 - smoothstep(70, 95, dd);
+          if (c.kind === 'highway') {
+            const m = (1 - smoothstep(c.half + 0.5, c.half + 2.5, q)) * reach;
+            h = h * (1 - m) + c.y * m;
+          } else {
+            const m = (1 - smoothstep(c.half - 1.5, c.half + 1.5, q)) * reach;
+            h = h * (1 - m) + (c.y - (c.kind === 'river' ? RIVER_DEPTH : CHASM_DEPTH)) * m;
+            wet[idx] = Math.max(wet[idx], m);
           }
         }
         // Frozen lake: a dead-flat sheet of ice.

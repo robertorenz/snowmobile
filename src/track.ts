@@ -1,11 +1,34 @@
 import * as THREE from 'three';
-import type { TrackDef } from './tracks';
+import type { TrackDef, JumpDef, CrossingKind } from './tracks';
 import { mulberry32, smoothstep, wrapAngle } from './util';
 
 /** Distance between centerline samples, in metres (approximate). */
 const SAMPLE_SPACING = 2;
 const OPEN_START = 60;
 const OPEN_RUNOFF = 100;
+
+/** Half the length (along the track) of the gap each kind of crossing leaves to jump. */
+const CROSSING_HALF: Record<CrossingKind, number> = { river: 6, chasm: 8, highway: 7.5, gate: 0 };
+/** How far past the ramp's lip a gate stands. */
+const GATE_DISTANCE = 16;
+/** Height of a gate's top rail: a sled lower than this when it gets there has hit it. */
+export const GATE_HEIGHT = 1.6;
+const RAMP: Pick<JumpDef, 'height' | 'length'> = { height: 2.1, length: 20 };
+/** After a failed jump, riders restart this far before the lip, so they have a run-up. */
+const RESPAWN_RUNUP = 95;
+
+/** Something across the course that has to be jumped: see TrackDef.crossings. */
+export interface Crossing {
+  kind: CrossingKind;
+  /** Sample at the middle of the crossing, and its path distance. */
+  idx: number;
+  s: number;
+  half: number;
+  /** Path distance of the ramp's lip. */
+  lipS: number;
+  /** Ground height at the crossing. */
+  y: number;
+}
 
 /** Something solid sitting on the racing surface. */
 export interface Obstacle {
@@ -34,6 +57,13 @@ export class Track {
   /** Half-width of the racing surface at each sample. */
   readonly hw: Float32Array;
   readonly obstacles: Obstacle[] = [];
+  readonly crossings: Crossing[] = [];
+  /** Every ramp on the course: the track's own jumps plus the one before each crossing. */
+  readonly ramps: JumpDef[];
+  /** 1 where the course runs over a highway's tarmac. */
+  readonly asphalt: Uint8Array;
+  /** Where a rider restarts if reset at each sample: itself, except around a crossing, where it's back before the ramp. */
+  readonly respawn: Int32Array;
   /** Speed the AI holds itself to over rollers and hill crests, so it lands on the course. */
   readonly caution: Float32Array;
   /** 1 where the course runs over lake ice. Filled in once the terrain exists. */
@@ -116,8 +146,18 @@ export class Track {
       this.pz[i] = sp[i].z;
     }
 
+    // Crossings each get a ramp in front of them.
+    this.ramps = [...def.jumps];
+    for (const c of def.crossings ?? []) {
+      const s = c.at * len;
+      const half = CROSSING_HALF[c.kind];
+      const lipS = c.kind === 'gate' ? s - GATE_DISTANCE : s - half - 3;
+      this.ramps.push({ at: lipS / len, ...RAMP });
+      this.crossings.push({ kind: c.kind, idx: Math.round(s / this.ds), s, half, lipS, y: 0 });
+    }
+
     // Jump ramps: a rise that ends in a lip.
-    for (const j of def.jumps) {
+    for (const j of this.ramps) {
       const lip = j.at * len;
       for (let i = 0; i < n; i++) {
         const u = (i * this.ds - (lip - j.length)) / j.length;
@@ -136,6 +176,19 @@ export class Track {
           if (r.count > 1) this.caution[i] = 30;
           else if (u < 0.6) this.caution[i] = 37;
         }
+      }
+    }
+
+    this.asphalt = new Uint8Array(n);
+    this.respawn = new Int32Array(n);
+    for (let i = 0; i < n; i++) this.respawn[i] = i;
+    for (const c of this.crossings) {
+      c.y = this.py[c.idx];
+      const back = Math.max(0, Math.round((c.lipS - RESPAWN_RUNUP) / this.ds));
+      for (let i = 0; i < n; i++) {
+        const s = i * this.ds;
+        if (s > c.lipS - 26 && s < c.s + c.half + 8) this.respawn[i] = back;
+        if (c.kind === 'highway' && Math.abs(s - c.s) < c.half) this.asphalt[i] = 1;
       }
     }
 
@@ -194,7 +247,7 @@ export class Track {
       const s = from + rnd() * (to - from);
       if (taken.some((t) => Math.abs(t - s) < 70)) continue;
       // Keep run-ups and landing zones clear.
-      if (def.jumps.some((j) => s > j.at * len - 50 && s < j.at * len + 110)) continue;
+      if (this.ramps.some((j) => s > j.at * len - 130 && s < j.at * len + 110)) continue;
       if ((def.rollers ?? []).some((r) => s > r.at * len - 20 && s < r.at * len + r.length + 30)) continue;
       const idx = this.wrap(Math.round(s / this.ds));
       const hw = this.hw[idx];

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildSledModel, poseSledModel, SledModel } from './sledModel';
 import type { World } from './world';
 import { clamp, lerp, wrapAngle } from './util';
+import { GATE_HEIGHT } from './track';
 
 /** A sled's state as sent between computers in an online race. */
 export interface SledNet {
@@ -185,7 +186,13 @@ export class Sled {
   /** Recovers a lost sled: back to the centerline where it left, stopped. */
   resetToTrack(world: World) {
     const { track, terrain } = world;
-    const i = this.idx;
+    // Around a crossing, go back far enough for a run at the ramp.
+    const i = track.respawn[this.idx];
+    if (i !== this.idx) {
+      this.progressBase += (i - this.idx) * track.ds;
+      this.progress = this.progressBase;
+      this.idx = i;
+    }
     this.pos.set(track.px[i], terrain.height(track.px[i], track.pz[i]), track.pz[i]);
     this.vel.set(0, 0, 0);
     this.yaw = track.yawAt(i);
@@ -243,6 +250,8 @@ export class Sled {
       }
       // Deep snow off the groomed surface drags hard.
       vf -= vf * (this.offTrack ? 0.9 : 0.1) * dt;
+      // Skis and track grind on a highway's tarmac.
+      if (track.asphalt[this.idx]) vf -= vf * 2.6 * dt;
       if (inp.throttle <= 0 && inp.brake <= 0) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 2.5 * dt);
 
       // Gravity along the slope.
@@ -291,6 +300,19 @@ export class Sled {
       this.impact = 9;
     }
 
+    // --- Highway traffic: get hit and you're sent back ---
+    for (const v of world.vehicles) {
+      const dx = pos.x - v.x;
+      const dz = pos.z - v.z;
+      const along = dx * v.dx + dz * v.dz;
+      const across = dz * v.dx - dx * v.dz;
+      if (Math.abs(along) < v.halfLength + 1 && Math.abs(across) < 1.9 && pos.y < v.y + v.height) {
+        this.resetToTrack(world);
+        this.impact = 9;
+        break;
+      }
+    }
+
     // --- Trees and rocks ---
     world.colliders.near(pos.x, pos.z, (c) => {
       const dx = pos.x - c.x;
@@ -327,6 +349,15 @@ export class Sled {
     const rz = pos.z - track.pz[i];
     this.lateral = rx * track.lx[i] + rz * track.lz[i];
     this.progress = this.progressBase + clamp(rx * track.tx[i] + rz * track.tz[i], -track.ds, track.ds);
+
+    // --- Gates: clear the top rail or be sent back for another run ---
+    for (const c of track.crossings) {
+      if (c.kind !== 'gate' || old >= c.idx || this.idx < c.idx || this.idx - old > 30) continue;
+      if (pos.y - terrain.height(pos.x, pos.z) < GATE_HEIGHT) {
+        this.resetToTrack(world);
+        this.impact = 9;
+      }
+    }
 
     this.syncModel(dt);
   }

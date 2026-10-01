@@ -29,6 +29,13 @@ export interface JumpDef {
   length: number;
 }
 
+/**
+ * Things laid across the course that must be jumped. Each gets a ramp in front of it.
+ * river: land in the water and you restart before the ramp. chasm: the same, with a longer gap.
+ * gate: a fence across the course; hit it and you restart. highway: a road with traffic to clear.
+ */
+export type CrossingKind = 'river' | 'chasm' | 'gate' | 'highway';
+
 export interface TrackDef {
   id: string;
   name: string;
@@ -48,6 +55,8 @@ export interface TrackDef {
   obstacles?: number;
   /** A river running beside part of the course. side: 1 = left of travel, -1 = right; gap is from the track edge to mid-river. */
   river?: { from: number; to: number; side: 1 | -1; gap: number; width: number };
+  /** Crossings, each placed at a 0..1 fraction of the track's length. Put them on straights. */
+  crossings?: { at: number; kind: CrossingKind }[];
   /** A frozen lake: an ellipse of flat, slippery ice at height y. */
   lake?: { x: number; z: number; rx: number; rz: number; y: number };
   seed: number;
@@ -586,6 +595,186 @@ export const TRACKS: TrackDef[] = [
     trees: 1800,
     aiBonus: 0.04,
     theme: GOLDEN,
+  },
+  {
+    id: 'river-leap',
+    name: 'River Leap',
+    blurb: 'A river cuts the course twice. Hit the ramps fast or you are swimming.',
+    closed: true,
+    laps: 2,
+    width: 24,
+    points: [
+      [0, 0, 0],
+      [160, 0, 0],
+      [300, 2, 30],
+      [370, 6, 130],
+      [360, 10, 250],
+      [280, 8, 340],
+      [150, 6, 360],
+      [0, 4, 350],
+      [-150, 6, 360],
+      [-280, 8, 330],
+      [-360, 4, 240],
+      [-360, 2, 110],
+      [-290, 0, 25],
+      [-160, 0, 0],
+    ],
+    widths: [
+      [0, 24],
+      [0.25, 18],
+      [0.5, 28],
+      [0.75, 18],
+    ],
+    jumps: [],
+    rollers: [{ at: 0.3, length: 60, height: 1.8, count: 3 }],
+    crossings: [
+      { at: 0.5, kind: 'river' },
+      { at: 0.955, kind: 'river' },
+    ],
+    obstacles: 6,
+    seed: 101,
+    mountain: 80,
+    trees: 1800,
+    aiBonus: 0.03,
+    theme: DAY,
+  },
+  {
+    id: 'farm-gates',
+    name: 'Farm Gates',
+    blurb: 'Across the farmland, where three fences block the road. Clear the top rail.',
+    closed: true,
+    laps: 2,
+    width: 22,
+    points: [
+      [0, 0, 0],
+      [150, 0, 0],
+      [270, 3, 40],
+      [330, 8, 140],
+      [300, 12, 260],
+      [200, 8, 330],
+      [70, 4, 340],
+      [-60, 6, 300],
+      [-180, 10, 340],
+      [-300, 6, 320],
+      [-370, 2, 220],
+      [-350, 0, 100],
+      [-270, 2, 20],
+      [-140, 0, 0],
+    ],
+    widths: [
+      [0, 22],
+      [0.3, 17],
+      [0.55, 27],
+      [0.8, 17],
+    ],
+    jumps: [],
+    rollers: [{ at: 0.66, length: 64, height: 1.8, count: 4 }],
+    crossings: [
+      { at: 0.07, kind: 'gate' },
+      { at: 0.42, kind: 'gate' },
+      { at: 0.955, kind: 'gate' },
+    ],
+    obstacles: 6,
+    seed: 107,
+    mountain: 55,
+    trees: 1300,
+    aiBonus: 0.03,
+    theme: MEADOW,
+  },
+  {
+    id: 'highway-hop',
+    name: 'Highway Hop',
+    blurb: 'A highway crosses the course twice. Jump the traffic, or grind across the tarmac and hope.',
+    closed: true,
+    laps: 2,
+    width: 23,
+    points: [
+      [0, 0, 0],
+      [170, 0, 0],
+      [310, 4, 50],
+      [360, 10, 170],
+      [300, 14, 290],
+      [170, 10, 330],
+      [20, 8, 300],
+      [-120, 12, 340],
+      [-260, 10, 310],
+      [-340, 4, 210],
+      [-330, 0, 90],
+      [-250, 0, 15],
+      [-130, 0, 0],
+    ],
+    widths: [
+      [0, 23],
+      [0.25, 18],
+      [0.5, 26],
+      [0.75, 18],
+    ],
+    jumps: [{ at: 0.3, height: 1.4, length: 16 }],
+    rollers: [{ at: 0.7, length: 60, height: 1.8, count: 3 }],
+    crossings: [
+      { at: 0.06, kind: 'highway' },
+      { at: 0.5, kind: 'highway' },
+    ],
+    obstacles: 5,
+    seed: 113,
+    mountain: 90,
+    trees: 1700,
+    aiBonus: 0.04,
+    theme: GOLDEN,
+  },
+  {
+    id: 'devils-canyon',
+    name: "Devil's Canyon",
+    blurb: 'The lot, downhill: two chasms, a river, a gate and a highway. One mistake each is too many.',
+    closed: false,
+    laps: 1,
+    width: 24,
+    points: [
+      [0, 300, 0],
+      [0, 290, 130],
+      [-50, 276, 270],
+      [-150, 262, 400],
+      [-170, 246, 540],
+      [-90, 232, 670],
+      [40, 220, 770],
+      [150, 206, 890],
+      [180, 190, 1030],
+      [110, 176, 1160],
+      [-20, 164, 1260],
+      [-140, 150, 1370],
+      [-180, 134, 1510],
+      [-110, 120, 1640],
+      [10, 106, 1740],
+      [120, 92, 1850],
+      [140, 76, 1990],
+      [70, 62, 2110],
+      [-10, 50, 2230],
+      [-20, 40, 2360],
+      [-20, 34, 2480],
+      [-20, 32, 2600],
+    ],
+    widths: [
+      [0, 24],
+      [0.2, 28],
+      [0.4, 17],
+      [0.6, 26],
+      [0.8, 17],
+    ],
+    jumps: [],
+    rollers: [{ at: 0.55, length: 70, height: 2, count: 3 }],
+    crossings: [
+      { at: 0.17, kind: 'chasm' },
+      { at: 0.34, kind: 'river' },
+      { at: 0.5, kind: 'gate' },
+      { at: 0.68, kind: 'highway' },
+      { at: 0.86, kind: 'chasm' },
+    ],
+    obstacles: 8,
+    seed: 127,
+    mountain: 130,
+    trees: 1500,
+    aiBonus: 0.05,
+    theme: GLACIER,
   },
 ];
 export type Difficulty = 'easy' | 'medium' | 'hard';

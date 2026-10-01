@@ -1,6 +1,6 @@
 # Powder Rush — Snowmobile Racing
 
-A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across eight tracks, on three difficulty levels.
+A 3D snowmobile racing game that runs in the browser. Race five AI riders to the finish across twelve tracks, on three difficulty levels.
 
 **Play it:** https://robertorenz.github.io/snowmobile/
 
@@ -52,12 +52,36 @@ A gamepad also works: left stick steers, triggers are throttle and brake, A boos
 | 6 | Thaw Meadow | Circuit, 2 laps | Green spring meadow where only the road holds snow; a river runs beside it |
 | 7 | Mirror Lake | Circuit, 2 laps | Straight across a frozen lake: fast, open ice with almost no grip |
 | 8 | Switchback Pass | Circuit, 2 laps | A 90 m climb through bends and over steep hills, then the plunge back down |
+| 9 | River Leap | Circuit, 2 laps | A river cuts the course twice; jump it or swim |
+| 10 | Farm Gates | Circuit, 2 laps | Three fences across a meadow road; clear the top rail |
+| 11 | Highway Hop | Circuit, 2 laps | A highway with traffic crosses the course twice |
+| 12 | Devil's Canyon | Point-to-point descent | Two chasms, a river, a gate and a highway, all downhill |
 
 Every track widens and narrows along its length (from about 14 m in the squeezes to 34 m in the open sections), has runs of tall rollers and some big single hills that are steep enough to slow a sled on the way up, and has striped barriers and ice boulders on the racing surface. Hitting one costs most of your speed; the AI riders steer around them. Rivers (Pine Meadow, Thaw Meadow, Mirror Lake) run in a channel beside the track: ride into one and you are put back on the course at a standstill.
 
 Finishing in the top 3 unlocks the next level. Best place and time are saved per track and difficulty in the browser's local storage.
 
 Difficulty (Easy, Medium, Hard) changes how fast the AI riders are, how close to the limit they corner, and whether they use boost.
+
+### Crossings
+
+Levels 9 to 12 are built around things you have to jump. Each has a ramp in front of it, flagged by striped warning boards, and each needs speed: roughly 90 km/h or more at the lip.
+
+| Crossing | What it is | If you don't clear it |
+|---|---|---|
+| River | 12 m of open water across the course | You land in the water and restart before the ramp |
+| Chasm | A 16 m pit | You fall in and restart before the ramp |
+| Gate | A fence across the course, 16 m past the ramp | You hit the top rail and restart before the ramp |
+| Highway | A two-lane road with cars and trucks | Traffic that hits you sends you back; the tarmac itself drags a sled almost to a stop |
+
+A restart puts you about 95 m before the ramp, at a standstill, which is enough run-up to make the jump. Boost helps.
+
+| | |
+|---|---|
+| ![Jumping the river on River Leap](docs/screenshots/river-leap.jpg) | ![Jumping a chasm on Devil's Canyon](docs/screenshots/devils-canyon.jpg) |
+| River Leap | Devil's Canyon |
+| ![Clearing a gate on Farm Gates](docs/screenshots/farm-gates.jpg) | ![Jumping traffic on Highway Hop](docs/screenshots/highway-hop.jpg) |
+| Farm Gates | Highway Hop |
 
 ## Online multiplayer
 
@@ -93,4 +117,4 @@ How it works: players connect directly to the host's browser over WebRTC (via [P
 
 ### Adding a track
 
-Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), a number of `obstacles`, a `river` and a `lake`; set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.
+Add an entry to `TRACKS` in `src/tracks.ts`. Besides the control points (whose y values set the hills), a track can list `widths` (width keyframes), `jumps`, `rollers` (a count of 1 makes a single big hill), a number of `obstacles`, a `river` and a `lake`, and `crossings` (river, chasm, gate or highway, each placed on a straight); set `meadow` on the theme for grass with a snow road. Then run `npm run check-tracks`. It reports each track's length, tightest corner, and how close separate stretches of the course come to each other; keep the minimum separation above about 110 m so the terrain can blend between them.

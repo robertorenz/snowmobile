@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Track } from './track';
-import { Terrain, RIVER_DEPTH, RIVER_WATER } from './terrain';
+import { Track, GATE_HEIGHT } from './track';
+import { Terrain, RIVER_DEPTH, RIVER_WATER, CHASM_DEPTH } from './terrain';
 import type { TrackDef, Theme } from './tracks';
 import { mulberry32 } from './util';
 
@@ -12,6 +12,28 @@ export interface Collider {
 }
 
 const GRID = 8;
+
+/** A car or truck on a highway crossing. */
+export interface Vehicle {
+  x: number;
+  y: number;
+  z: number;
+  /** Unit direction of the road it drives along. */
+  dx: number;
+  dz: number;
+  halfLength: number;
+  height: number;
+  mesh: THREE.Object3D;
+  /** Road origin, lane offset along the track, speed (signed), and starting offset. */
+  ox: number;
+  oz: number;
+  lane: number;
+  speed: number;
+  phase: number;
+}
+
+/** Half the length of highway that traffic runs along, either side of the track. */
+const ROAD_HALF = 92;
 
 /** Spatial hash of solid scenery (trees, rocks) for sled collisions. */
 export class ColliderGrid {
@@ -128,6 +150,7 @@ export class World {
   private snowMat?: THREE.ShaderMaterial;
   private auroraMat?: THREE.ShaderMaterial;
   private time = 0;
+  readonly vehicles: Vehicle[] = [];
 
   constructor(readonly def: TrackDef) {
     const theme = (this.theme = def.theme);
@@ -343,7 +366,7 @@ export class World {
       const x = terrain.minX + rnd() * terrain.sizeX;
       const z = terrain.minZ + rnd() * terrain.sizeZ;
       const d = terrain.edgeAt(x, z);
-      if (d < 3.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02) continue;
+      if (d < 3.5 || terrain.wetAt(x, z) > 0.02 || terrain.iceAt(x, z) > 0.02 || this.onRoad(x, z)) continue;
       // Dense forest lining the course, thinning out up the slopes.
       const keep = d < 45 ? 0.9 : d < 118 ? 0.35 : 0.05;
       if (rnd() > keep) continue;
@@ -518,6 +541,8 @@ export class World {
       this.scene.add(water);
     }
 
+    this.buildCrossings();
+
     // --- Start / finish gates ---
     this.scene.add(this.makeGate(track.startIdx, track.closed ? 'START / FINISH' : 'START'));
     if (!track.closed) this.scene.add(this.makeGate(track.finishIdx, 'FINISH'));
@@ -609,6 +634,197 @@ export class World {
     return gate;
   }
 
+  /** True on a highway's tarmac, where nothing should be planted. */
+  private onRoad(x: number, z: number) {
+    const track = this.track;
+    for (const c of track.crossings) {
+      if (c.kind !== 'highway') continue;
+      const rx = x - track.px[c.idx];
+      const rz = z - track.pz[c.idx];
+      const along = rx * track.tx[c.idx] + rz * track.tz[c.idx];
+      const across = rx * track.lx[c.idx] + rz * track.lz[c.idx];
+      if (Math.abs(along) < c.half + 5 && Math.abs(across) < ROAD_HALF + 10) return true;
+    }
+    return false;
+  }
+
+  /** What riders have to jump: water, a pit, a fence, or a road with traffic on it. */
+  private buildCrossings() {
+    const { track, terrain, theme } = this;
+    const stripes = stripeTexture();
+    const signMat = new THREE.MeshStandardMaterial({
+      map: stripes,
+      emissive: 0xffffff,
+      emissiveMap: stripes,
+      emissiveIntensity: theme.night ? 0.8 : 0.3,
+      roughness: 0.7,
+    });
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x2a3440, roughness: 0.7 });
+    const rnd = mulberry32(track.def.seed * 17 + 3);
+
+    for (const c of track.crossings) {
+      const i = c.idx;
+      const yaw = track.yawAt(i);
+      // Local frame: +Z runs along the track, +X to its left, origin on the ground mid-crossing.
+      const node = new THREE.Group();
+      node.position.set(track.px[i], c.y, track.pz[i]);
+      node.rotation.y = yaw;
+      this.scene.add(node);
+
+      // Warning boards either side of the ramp's lip.
+      const lip = track.wrap(Math.round(c.lipS / track.ds));
+      for (const side of [1, -1]) {
+        const off = side * (track.hw[lip] + 1.4);
+        const x = track.px[lip] + track.lx[lip] * off;
+        const z = track.pz[lip] + track.lz[lip] * off;
+        const y = terrain.height(x, z);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.4, 0.14), postMat);
+        post.position.set(x, y + 1.7, z);
+        const board = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 0.1), signMat);
+        board.position.set(x, y + 3.2, z);
+        board.rotation.y = yaw;
+        post.castShadow = board.castShadow = true;
+        this.scene.add(post, board);
+      }
+
+      if (c.kind === 'river') {
+        const water = new THREE.Mesh(
+          new THREE.PlaneGeometry(190, c.half * 2 + 8).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({
+            color: theme.meadow ? 0x2f7fb0 : 0x24597e,
+            roughness: 0.12,
+            metalness: 0.35,
+            transparent: true,
+            opacity: 0.9,
+          }),
+        );
+        water.position.y = -RIVER_DEPTH + RIVER_WATER;
+        node.add(water);
+      } else if (c.kind === 'chasm') {
+        // A black floor, so the pit reads as bottomless.
+        const floor = new THREE.Mesh(
+          new THREE.PlaneGeometry(190, c.half * 2 + 6).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0x04070a, fog: false }),
+        );
+        floor.position.y = -CHASM_DEPTH + 1.5;
+        node.add(floor);
+      } else if (c.kind === 'gate') {
+        const hw = track.hw[i];
+        const wood = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 0.9 });
+        const white = new THREE.MeshStandardMaterial({ color: 0xf3f6f8, roughness: 0.7 });
+        const red = new THREE.MeshStandardMaterial({ color: 0xd8343a, roughness: 0.7 });
+        const span = hw * 2 + 22;
+        // Fence running off into the snow either side, and a painted gate across the course.
+        for (const h of [0.55, 1.05, GATE_HEIGHT - 0.06]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 0.12, 0.1), wood);
+          rail.position.y = h;
+          rail.castShadow = true;
+          node.add(rail);
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 0.16, 0.14), h === 1.05 ? red : white);
+          bar.position.y = h;
+          bar.castShadow = true;
+          node.add(bar);
+        }
+        for (let x = -span / 2; x <= span / 2 + 0.01; x += span / 14) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, GATE_HEIGHT + 0.3, 0.2), Math.abs(x) < hw ? white : wood);
+          post.position.set(x, (GATE_HEIGHT + 0.3) / 2, 0);
+          post.castShadow = true;
+          node.add(post);
+        }
+      } else {
+        // Highway: tarmac with lane markings, a tunnel mouth at each end, and traffic.
+        const rc = document.createElement('canvas');
+        rc.width = 128;
+        rc.height = 256;
+        const g = rc.getContext('2d')!;
+        g.fillStyle = '#2b2f34';
+        g.fillRect(0, 0, 128, 256);
+        g.fillStyle = '#e8e8e2';
+        g.fillRect(0, 10, 128, 6);
+        g.fillRect(0, 240, 128, 6);
+        g.fillStyle = '#e9b93a';
+        g.fillRect(16, 124, 72, 8);
+        const tex = new THREE.CanvasTexture(rc);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.repeat.set(ROAD_HALF / 4, 1);
+        tex.anisotropy = 8;
+        const road = new THREE.Mesh(
+          new THREE.PlaneGeometry(ROAD_HALF * 2, c.half * 2).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }),
+        );
+        road.position.y = 0.07;
+        road.receiveShadow = true;
+        node.add(road);
+        const tunnelMat = new THREE.MeshStandardMaterial({ color: 0x1b2026, roughness: 0.9 });
+        for (const side of [1, -1]) {
+          const mouth = new THREE.Mesh(new THREE.BoxGeometry(10, 7, c.half * 2 + 3), tunnelMat);
+          mouth.position.set(side * (ROAD_HALF + 3), 3.5, 0);
+          node.add(mouth);
+        }
+
+        const colors = [0xc0392b, 0x2471a3, 0xe5e8ea, 0x1e8449, 0xd68910, 0x34495e];
+        const count = 6;
+        for (let k = 0; k < count; k++) {
+          const lane = k % 2 ? 1 : -1;
+          const truck = rnd() < 0.35;
+          const length = truck ? 7.5 : 4.2;
+          const height = truck ? 2.3 : 1.5;
+          const mesh = new THREE.Group();
+          const bodyMat = new THREE.MeshStandardMaterial({ color: colors[k % colors.length], roughness: 0.4, metalness: 0.3 });
+          const body = new THREE.Mesh(new THREE.BoxGeometry(length, height * (truck ? 0.85 : 0.5), 2), bodyMat);
+          body.position.y = height * (truck ? 0.55 : 0.4);
+          const cabin = new THREE.Mesh(
+            new THREE.BoxGeometry(length * (truck ? 0.22 : 0.5), height * 0.45, 1.8),
+            new THREE.MeshStandardMaterial({ color: 0x1a222b, roughness: 0.2, metalness: 0.4 }),
+          );
+          cabin.position.set(truck ? length * 0.36 : -0.2, height * (truck ? 0.5 : 0.78), 0);
+          const lights = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.2, 1.6),
+            new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2c4, emissiveIntensity: 2.5 }),
+          );
+          lights.position.set(length / 2, height * 0.3, 0);
+          body.castShadow = cabin.castShadow = true;
+          mesh.add(body, cabin, lights);
+          // Meshes are built facing +X; oncoming traffic is turned around.
+          mesh.rotation.y = yaw + (lane > 0 ? 0 : Math.PI);
+          this.scene.add(mesh);
+          this.vehicles.push({
+            x: 0,
+            y: c.y,
+            z: 0,
+            dx: track.lx[i],
+            dz: track.lz[i],
+            halfLength: length / 2,
+            height,
+            mesh,
+            ox: track.px[i],
+            oz: track.pz[i],
+            // Lane offset is along the track; lane 1 drives toward the track's left.
+            lane: lane * c.half * 0.48,
+            speed: lane * (13 + rnd() * 7),
+            phase: (k / count) * ROAD_HALF * 2 + rnd() * 12,
+          });
+        }
+      }
+    }
+    this.setRaceTime(0);
+  }
+
+  /** Moves highway traffic to where it is at the given race time. */
+  setRaceTime(t: number) {
+    const span = ROAD_HALF * 2;
+    for (const v of this.vehicles) {
+      const along = ((((v.phase + t * v.speed) % span) + span) % span) - ROAD_HALF;
+      // Tangent of the track at this road = the direction lanes are offset in.
+      const tx = -v.dz;
+      const tz = v.dx;
+      v.x = v.ox + v.dx * along + tx * v.lane;
+      v.z = v.oz + v.dz * along + tz * v.lane;
+      v.mesh.position.set(v.x, v.y + 0.08, v.z);
+    }
+  }
+
   /** Per-frame upkeep: keep sky, snowfall and shadows centred on the action. */
   update(dt: number, camera: THREE.Camera, focus: THREE.Vector3) {
     this.time += dt;
@@ -638,6 +854,28 @@ export class World {
       }
     });
   }
+}
+
+/** Amber and black hazard stripes. */
+function stripeTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f6a821';
+  g.fillRect(0, 0, 256, 64);
+  g.fillStyle = '#14181d';
+  for (let x = -64; x < 256; x += 64) {
+    g.beginPath();
+    g.moveTo(x, 64);
+    g.lineTo(x + 32, 64);
+    g.lineTo(x + 96, 0);
+    g.lineTo(x + 64, 0);
+    g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** A snow-dusted pine: trunk plus three cone tiers, coloured per vertex. */
