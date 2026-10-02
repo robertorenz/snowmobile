@@ -223,6 +223,8 @@ class Game {
       drag = { x: e.clientX, y: e.clientY };
     });
     canvas.addEventListener('wheel', (e) => {
+      // While racing, the wheel moves a raised view out (scroll down) or in.
+      if (!this.photo && this.mode === 'race' && !this.paused) this.stepZoom(e.deltaY > 0 ? 1 : -1, false);
       if (this.photo) this.photo.dist = clamp(this.photo.dist * (1 + e.deltaY * 0.001), 3, 45);
     }, { passive: true });
 
@@ -247,6 +249,24 @@ class Game {
    * frames are taking too long, and more again when there is time to spare.
    * Judged over a second or so at a time, so one hitch doesn't trigger it.
    */
+  /** Steps the height of whichever raised view is in use: 1 to 4, wrapping round when asked to. */
+  private stepZoom(by: number, wrap: boolean) {
+    const s = this.save;
+    if (s.camera !== 'high' && s.camera !== 'top') return;
+    const key = s.camera === 'high' ? 'highZoom' : 'topZoom';
+    const next = (s[key] || 1) + by;
+    s[key] = wrap ? ((next - 1 + 4) % 4) + 1 : clamp(next, 1, 4);
+    writeSave(s);
+    this.announceView();
+  }
+
+  private announceView() {
+    const s = this.save;
+    const times = (n: number) => (n > 1 ? `  x${n}` : '');
+    const name = s.camera === 'top' ? 'BIRD\'S-EYE VIEW' + times(s.topZoom) : s.camera === 'high' ? 'HIGH VIEW' + times(s.highZoom) : s.camera === 'rider' ? 'RIDER VIEW' : 'CHASE VIEW';
+    this.flash(name, 1.1);
+  }
+
   private adaptResolution(frame: number) {
     // Ignore pauses, tab switches and track loads.
     if (frame > 0.25 || this.busy || this.paused) return;
@@ -575,18 +595,15 @@ class Game {
 
     if (this.input.consume('KeyC')) {
       // C steps through the three views.
-      // Chase, rider, then the bird's-eye view at four heights, then round again.
+      // C changes the kind of view: chase, rider, high behind, straight down.
       const s = this.save;
-      if (s.camera === 'chase') s.camera = 'rider';
-      else if (s.camera === 'rider') {
-        s.camera = 'top';
-        s.topZoom = 1;
-      } else if (s.topZoom < 4) s.topZoom++;
-      else s.camera = 'chase';
-      this.flash(this.save.camera === 'top' ? (this.save.topZoom > 1 ? `BIRD\'S-EYE VIEW  x${this.save.topZoom}` : 'BIRD\'S-EYE VIEW') : this.save.camera === 'rider' ? 'RIDER VIEW' : 'CHASE VIEW', 1.1);
+      s.camera = s.camera === 'chase' ? 'rider' : s.camera === 'rider' ? 'high' : s.camera === 'high' ? 'top' : 'chase';
+      this.announceView();
       this.camSnap = true;
       writeSave(this.save);
     }
+    // X (or the mouse wheel) moves the high and bird's-eye views further out and back in.
+    if (this.input.consume('KeyX')) this.stepZoom(1, true);
     if (this.input.consume('KeyV')) {
       this.save.mirror = !this.save.mirror;
       writeSave(this.save);
@@ -1048,6 +1065,29 @@ class Game {
       cam.up.set(fx, 0, fz);
       cam.lookAt(sled.pos.x + fx * lead, sled.pos.y, sled.pos.z + fz * lead);
       cam.fov = lerp(cam.fov, 52, 1 - Math.exp(-4 * dt));
+      cam.updateProjectionMatrix();
+      this.camSnap = false;
+      return;
+    }
+    if (this.save.camera === 'high' && !roofed) {
+      // High view: well behind and above, looking down the course at an angle, so the hills and the road ahead both show.
+      const speed = sled.speed;
+      let want = sled.yaw;
+      if (speed > 6) want += wrapAngle(Math.atan2(sled.vel.x, sled.vel.z) - sled.yaw) * 0.5;
+      if (this.camSnap) this.camYaw = want;
+      this.camYaw += wrapAngle(want - this.camYaw) * (1 - Math.exp(-3.5 * dt));
+      const fx = Math.sin(this.camYaw);
+      const fz = Math.cos(this.camYaw);
+      const zoom = clamp(this.save.highZoom || 1, 1, 4);
+      const back = 20 * zoom;
+      const x = sled.pos.x - fx * back;
+      const z = sled.pos.z - fz * back;
+      // Stay clear of any hill the camera would otherwise be inside.
+      const y = Math.max(sled.pos.y + 13 * zoom, world.ground(x, z, sled.idx) + 4);
+      this.camY = this.camSnap ? y : lerp(this.camY, y, 1 - Math.exp(-4 * dt));
+      cam.position.set(x, this.camY, z);
+      cam.lookAt(sled.pos.x + fx * 16 * zoom, sled.pos.y, sled.pos.z + fz * 16 * zoom);
+      cam.fov = lerp(cam.fov, 56, 1 - Math.exp(-4 * dt));
       cam.updateProjectionMatrix();
       this.camSnap = false;
       return;

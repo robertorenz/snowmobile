@@ -56,7 +56,8 @@ At any level, if frames start taking too long the game lowers its drawing resolu
 | `M` | Mute |
 | `F` | Flip while in the air |
 | `E` / `Ctrl` | Throw a snowball |
-| `C` | Change view: chase camera, rider's view, then bird's-eye from above at four heights (x1 to x4) |
+| `C` | Change view: chase, rider, high behind (angled down the course), bird's-eye (straight down) |
+| `X` / mouse wheel | Move the high and bird's-eye views further out: four distances each |
 
 **Tricks:** hold `F` in the air to flip. Land it and each full rotation refills nearly half your boost; land part-way round and you wipe out and lose half your speed.
 
