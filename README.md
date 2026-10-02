@@ -260,6 +260,8 @@ Thaw Meadow and the second river on River Leap are crossed by a drawbridge inste
 
 The AI riders time their approach and wait at the bank when they have to.
 
+![The drawbridge on Thaw Meadow, lifted](docs/screenshots/drawbridge.jpg)
+
 ### Shortcuts
 
 Five tracks have a shortcut: a narrow way cut across country that leaves the road at a "SHORTCUT" sign and rejoins it further on.
@@ -297,6 +299,11 @@ Under **Season and light** on the menu, any track can be run in a different seas
 | Night | Added to any of the above: a dark sky with stars and aurora, and fog that hides everything your headlight doesn't reach. Every sled shows a headlamp and a red tail light |
 
 A season changes which surface patches appear on the road, so times in different seasons aren't quite comparable. In an online room the host's choice is used for everyone.
+
+| | |
+|---|---|
+| ![Mirror Lake in autumn](docs/screenshots/autumn.jpg) | ![Pine Meadow at night](docs/screenshots/night.jpg) |
+| Mirror Lake in autumn | Pine Meadow at night |
 
 ### Snow that remembers
 
