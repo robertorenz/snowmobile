@@ -1462,3 +1462,59 @@ kbd {
   font-size: 13px;
   padding: 7px 0;
 }
+
+/* ---------- Season picker, commentary, records ---------- */
+
+.segmented.five {
+  grid-template-columns: repeat(4, 1fr) 0.9fr;
+}
+.segmented.five .seg {
+  font-size: 13px;
+  padding: 8px 0;
+}
+.seg.toggle {
+  border-left: 1px solid var(--line);
+  border-radius: 0 7px 7px 0;
+}
+.seg.toggle.active {
+  background: var(--amber);
+  color: #1c1303;
+  border-radius: 7px;
+}
+
+.hud-commentary {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  max-width: min(720px, 80vw);
+  padding: 9px 20px;
+  font-size: 19px;
+  font-weight: 700;
+  font-style: italic;
+  color: #f3f8fc;
+  text-align: center;
+  background: rgba(10, 24, 38, 0.78);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--amber);
+  border-radius: 8px;
+}
+.hud-commentary:empty {
+  display: none;
+}
+
+.records-scroll {
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.records-scroll .section-label {
+  margin: 16px 0 2px;
+}
+.standings.records {
+  margin-top: 4px;
+  font-size: 14px;
+}
+.standings.records .time-main {
+  font-weight: 800;
+}

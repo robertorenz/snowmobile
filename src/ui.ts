@@ -1,6 +1,6 @@
-import { TRACKS, CUPS, MEDAL_FACTORS, DIFFICULTIES, Difficulty, TrackDef } from './tracks';
+import { TRACKS, CUPS, MEDAL_FACTORS, DIFFICULTIES, Difficulty, TrackDef, Season } from './tracks';
 import { trackOutline } from './track';
-import { SaveData, GameMode, resultKey } from './storage';
+import { SaveData, GameMode, resultKey, RECORDS_KEPT } from './storage';
 import type { Standing } from './race';
 import { formatTime, ordinal } from './util';
 import { SLEDS, PAINTS, UPGRADES, UPGRADE_PRICES, STRIPES, Upgrade, sledById } from './sleds';
@@ -20,6 +20,8 @@ export interface UICallbacks {
   /** Change graphics level. The game reloads. */
   onQuality(level: Quality | 'auto'): void;
   onMode(mode: GameMode): void;
+  /** The season or the time of day was changed on the menu. */
+  onConditions(season: Season, night: boolean): void;
   /** Select a paint, buying it first if need be. False if there aren't enough coins. */
   onPaint(id: string): boolean;
   onChat(text: string): void;
@@ -44,7 +46,7 @@ export interface UICallbacks {
   onLeaveRoom(): void;
 }
 
-export type SettingKey = 'ice' | 'stone' | 'grass' | 'mirror' | 'sound' | 'music';
+export type SettingKey = 'ice' | 'stone' | 'grass' | 'mirror' | 'sound' | 'music' | 'commentary' | 'voice' | 'slowmo';
 
 /** The online room this player is in, as shown on the menu. */
 export interface RoomView {
@@ -73,6 +75,8 @@ export interface HudState {
   banner: string;
   bannerTone: 'count' | 'go' | 'warn' | 'info' | '';
   hint: string;
+  /** The commentator's current line, or '' for none. */
+  commentary: string;
   racers: { x: number; z: number; color: string; isPlayer: boolean }[];
 }
 
@@ -91,6 +95,8 @@ export interface ResultsData {
   /** Championship: where this race falls in the cup and the points table; final is the finishing position once the cup is over. */
   champ?: { cup: string; race: number; races: number; table: { name: string; points: number; me: boolean }[]; final: number };
   eliminated?: boolean;
+  /** Where this time ranks on the track's record board (1 is a new record), or 0 if it didn't make it. */
+  record?: number;
   /** Coins won in this race. */
   coins?: number;
   /** Filled in by the game: whether there is a replay to watch, riders still out to spectate, and whether we host the room. */
@@ -98,6 +104,9 @@ export interface ResultsData {
   canWatch?: boolean;
   isHost?: boolean;
 }
+
+/** The seasons on the menu. "Set" is each track as it was designed. */
+const SEASONS: [Season, string][] = [['default', 'Set'], ['winter', 'Winter'], ['spring', 'Spring'], ['autumn', 'Autumn']];
 
 const standingRows = (standings: Standing[]) =>
   standings
@@ -322,10 +331,13 @@ export class UI {
         <div class="segmented">${diffButtons}</div>
         <p class="diff-blurb">${DIFFICULTIES[difficulty].blurb}</p>
         ${modeBar ? `<div class="section-label">Mode</div>${modeBar}` : ''}
+        ${guest ? '' : `<div class="section-label">Season and light</div>
+        <div class="segmented five">${SEASONS.map(([id, label]) => `<button class="seg ${id === save.season ? 'active' : ''}" data-season="${id}">${label}</button>`).join('')}<button class="seg toggle ${save.night ? 'active' : ''}" data-night aria-pressed="${save.night}">Night</button></div>`}
         <div class="section-label">${mode === 'championship' ? 'Cup' : 'Track'}</div>
         <div class="track-list ${mode === 'championship' ? 'cups' : ''}">${mode === 'championship' ? cupCards : cards}</div>
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
+          <button class="btn ghost" data-act="records">Records</button>
           <button class="btn ghost" data-act="settings">Settings</button>
         </div>
       </div>
@@ -386,6 +398,18 @@ export class UI {
     );
     this.menu.querySelector('[data-act="start"]')?.addEventListener('click', () => this.cb.onStart());
     this.menu.querySelector('[data-act="help"]')!.addEventListener('click', () => this.showHelp());
+    this.menu.querySelector('[data-act="records"]')!.addEventListener('click', () => this.showRecords());
+    this.menu.querySelectorAll<HTMLButtonElement>('[data-season]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (b.dataset.season === save.season) return;
+        this.cb.onConditions(b.dataset.season as Season, save.night);
+        this.renderMenu();
+      }),
+    );
+    this.menu.querySelector('[data-night]')?.addEventListener('click', () => {
+      this.cb.onConditions(save.season, !save.night);
+      this.renderMenu();
+    });
     this.menu.querySelector('[data-act="settings"]')!.addEventListener('click', () => this.showSettings());
   }
 
@@ -423,6 +447,7 @@ export class UI {
         <div class="boost"><div class="boost-label">BOOST</div><div class="boost-bar"><div class="boost-fill" data-ref="boost"></div></div></div>
       </div>
       <div class="hud-center"><div class="banner" data-ref="banner"></div></div>
+      <div class="hud-commentary" data-ref="commentary"></div>
       <div class="hud-hint" data-ref="hint"></div>`;
     this.hud.querySelectorAll<HTMLElement>('[data-ref]').forEach((n) => (this.refs[n.dataset.ref!] = n));
     this.mapCanvas = this.hud.querySelector('.minimap')!;
@@ -473,6 +498,7 @@ export class UI {
     if (r.banner.textContent !== s.banner) r.banner.textContent = s.banner;
     r.banner.className = `banner ${s.bannerTone}`;
     if (r.hint.textContent !== s.hint) r.hint.textContent = s.hint;
+    if (r.commentary.textContent !== s.commentary) r.commentary.textContent = s.commentary;
 
     const g = this.mapCanvas.getContext('2d')!;
     const size = this.mapCanvas.width;
@@ -636,6 +662,9 @@ export class UI {
       ['stone', 'Rock and shale patches', 'Bare rock and gravel that slow the sled', save.surfaces.stone],
       ['grass', 'Grass patches', 'Grass showing through the snow', save.surfaces.grass],
       ['mirror', 'Rear-view mirror', gfx.level === 'low' ? 'Not available on Low graphics' : 'Shown at the top of the screen while racing (V)', save.mirror],
+      ['commentary', 'Commentary', 'A commentator calls the race along the bottom of the screen', save.commentary],
+      ['voice', 'Spoken commentary', 'Read aloud in the voice built into your browser (needs Commentary on)', save.voice],
+      ['slowmo', 'Slow motion', 'Big jumps, near misses and close finishes slow down for a moment (solo races)', save.slowmo],
       ['sound', 'Sound', 'Engine, wind and effects (M)', !save.muted],
       ['music', 'Music', 'The soundtrack', save.music],
     ];
@@ -673,6 +702,32 @@ export class UI {
         b.setAttribute('aria-checked', String(on));
         this.cb.onSetting(b.dataset.key as SettingKey, on);
       }),
+    );
+    this.bind(m, { close: () => this.closeModal() });
+  }
+
+  /** The record board: the best times set on each track, on this computer. */
+  showRecords() {
+    const modeName = { race: 'Race', trial: 'Time trial', elimination: 'Knockout' };
+    const boards = TRACKS.map((t, i) => {
+      const list = this.save.records[t.id] ?? [];
+      if (!list.length) return '';
+      return `
+        <div class="section-label">${i + 1} · ${t.name}</div>
+        <table class="standings records">${list
+          .map(
+            (r, k) =>
+              `<tr class="${k === 0 ? 'me' : ''}"><td class="pos">${k + 1}</td><td class="time-main">${formatTime(r.time)}</td><td>${escapeHtml(sledById(r.sled).name)}</td><td>${modeName[r.mode]}${r.mode === 'race' ? ' · ' + DIFFICULTIES[r.difficulty].label : ''}</td><td class="time">${escapeHtml(r.date)}</td></tr>`,
+          )
+          .join('')}</table>`;
+    }).join('');
+    const m = this.openModal(
+      `
+      <h2>Records</h2>
+      <p class="modal-lead">Your ${RECORDS_KEPT} best times on each track, from solo races and time trials. They are kept in this browser, on this computer.</p>
+      <div class="records-scroll">${boards || '<p class="modal-note">No times yet. Finish a race or a time trial to set one.</p>'}</div>
+      <div class="modal-actions"><button class="btn primary" data-act="close">Close</button></div>`,
+      true,
     );
     this.bind(m, { close: () => this.closeModal() });
   }
@@ -834,6 +889,8 @@ export class UI {
       if (!d.isHost && d.hasNext) notes.push('<div class="note">The host starts the next race.</div>');
     }
     const extras = `${d.canReplay ? '<button class="btn" data-act="replay">Watch replay</button>' : ''}${d.canWatch ? '<button class="btn" data-act="watch">Watch the others finish</button>' : ''}`;
+    if (d.record === 1) notes.unshift('<div class="note good">New track record!</div>');
+    else if (d.record) notes.unshift(`<div class="note">${ordinal(d.record)} best time on this track.</div>`);
     if (d.coins) notes.unshift(`<div class="note good">+${d.coins} coins</div>`);
     const m = this.openModal(
       `

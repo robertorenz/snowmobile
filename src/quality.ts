@@ -26,6 +26,8 @@ export interface QualityDef {
   extras: boolean;
   /** The rear-view mirror costs a second pass over the scene. */
   mirror: boolean;
+  /** Sled tracks drawn into the snow. (The packed line is faster at every level; this is only whether you see it.) */
+  snowTracks: boolean;
   /** Plain flat colours for the road's surface patches instead of textured ones. */
   plainGround: boolean;
 }
@@ -45,6 +47,7 @@ export const QUALITY: Record<Quality, QualityDef> = {
     snow: 0.3,
     extras: false,
     mirror: false,
+    snowTracks: false,
     plainGround: true,
   },
   medium: {
@@ -61,6 +64,7 @@ export const QUALITY: Record<Quality, QualityDef> = {
     snow: 0.6,
     extras: true,
     mirror: true,
+    snowTracks: true,
     plainGround: false,
   },
   high: {
@@ -77,6 +81,7 @@ export const QUALITY: Record<Quality, QualityDef> = {
     snow: 1,
     extras: true,
     mirror: true,
+    snowTracks: true,
     plainGround: false,
   },
 };

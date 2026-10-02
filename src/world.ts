@@ -8,6 +8,7 @@ import { mulberry32 } from './util';
 import { makeNoise } from './noise';
 import { Ambient } from './ambient';
 import { QUALITY, QualityDef } from './quality';
+import { SnowTrails } from './trails';
 
 export interface Collider {
   x: number;
@@ -174,6 +175,8 @@ export class World {
   /** Clock for the wind in the trees. */
   private wind = { value: 0 };
   readonly pickups: Pickup[] = [];
+  /** Sled trails and the packed racing line. */
+  readonly trails: SnowTrails;
   /** 0 clear to 1 thick: how heavy the weather is right now. */
   weather = 0;
   private snowSize = 70 * Math.min(window.devicePixelRatio, 2);
@@ -201,6 +204,8 @@ export class World {
       this.track.ice[i] = sheet || this.terrain.iceAt(this.track.px[i], this.track.pz[i]) > 0.5 ? 1 : 0;
     }
     this.scene.add(this.terrain.mesh);
+    this.trails = new SnowTrails(this, this.quality.snowTracks);
+    if (this.trails.mesh) this.scene.add(this.trails.mesh);
     this.scene.add(this.spray.points);
 
     this.scene.fog = new THREE.Fog(theme.fog, theme.fogNear, theme.fogFar);
@@ -415,7 +420,7 @@ export class World {
     // --- Trees: several species, each instance its own size, lean and shade ---
     const detail = this.quality;
     const treeCount = Math.round(def.trees * detail.trees);
-    const species = detail.simpleTrees ? makeSimpleTrees(!theme.meadow) : makeTreeSpecies(!theme.meadow, !!theme.meadow, def.seed);
+    const species = detail.simpleTrees ? makeSimpleTrees(!theme.meadow) : makeTreeSpecies(!theme.meadow, !!theme.meadow, def.seed, !!theme.autumn);
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
     // The tops sway a little in the wind; the trunks stay put.
     treeMat.onBeforeCompile = (shader) => {
@@ -1531,7 +1536,9 @@ type V3 = [number, number, number];
  * Tamarack, elm and birch are bare with snow on them on winter tracks and in
  * leaf on the meadow tracks.
  */
-function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeSpecies[] {
+function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number, autumn = false): TreeSpecies[] {
+  /** A leaf colour: its summer green, or what it turns in autumn. */
+  const turn = (green: number, fall: number) => new THREE.Color(autumn ? fall : green);
   const rnd = mulberry32(seed * 419 + 3);
   const bark = new THREE.Color(0x4a3628);
   const frost = new THREE.Color(0xeaf2f8);
@@ -1694,7 +1701,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
   const elm = () => {
     const m = mesher();
     const wood = new THREE.Color(0x54463a);
-    const leaf = new THREE.Color(0x4f8a3a);
+    const leaf = turn(0x4f8a3a, 0xc9952b);
     m.stick([0, 0, 0], [0, 2.6, 0], 0.34, 0.24, wood, wood, 6);
     grow(m, [0, 2.4, 0], up, 1.5, 0.22, 3, {
       kids: 3,
@@ -1713,7 +1720,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
     const white = new THREE.Color(0xe6e2d8);
     const mark = new THREE.Color(0x2f2a26);
     const twig = new THREE.Color(0x5a4a40);
-    const leaf = new THREE.Color(0x86b84a);
+    const leaf = turn(0x86b84a, 0xe2b93a);
     const h = 6.4;
     const bands = 9;
     for (let k = 0; k < bands; k++) {
@@ -1748,7 +1755,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
    * short bare branches.
    */
   const tamarack = () => {
-    if (meadow) return conifer({ tiers: 8, base: 1.15, top: 0.2, height: 7.4, bare: 1.4, droop: 0.18, green: 0x9cc65a, overlap: 1.15, boughs: 8, trunk: 0.15 });
+    if (meadow) return conifer({ tiers: 8, base: 1.15, top: 0.2, height: 7.4, bare: 1.4, droop: 0.18, green: autumn ? 0xd9a83a : 0x9cc65a, overlap: 1.15, boughs: 8, trunk: 0.15 });
     const m = mesher();
     const wood = new THREE.Color(0x6a5644);
     const h = 7.4;
@@ -1773,7 +1780,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
   const maple = () => {
     const m = mesher();
     const wood = new THREE.Color(0x4d3d31);
-    const leaf = new THREE.Color(0x3f7a34);
+    const leaf = turn(0x3f7a34, 0xc2441f);
     m.stick([0, 0, 0], [0, 1.9, 0], 0.36, 0.27, wood, wood, 6);
     grow(m, [0, 1.7, 0], up, 1.3, 0.24, 2, {
       kids: 4,
@@ -1792,7 +1799,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
     const m = mesher();
     const pale = new THREE.Color(0xc9cdb8);
     const twig = new THREE.Color(0x6a6658);
-    const leaf = new THREE.Color(0x9ac44e);
+    const leaf = turn(0x9ac44e, 0xe8c33c);
     const h = 7.2;
     m.stick([0, 0, 0], [0, h, 0], 0.14, 0.04, pale, pale, 5);
     for (let k = 0; k < 6; k++) {
@@ -1834,7 +1841,7 @@ function makeTreeSpecies(frosted: boolean, meadow: boolean, seed: number): TreeS
   const bush = (berries: boolean) => {
     const m = mesher();
     const twig = new THREE.Color(0x5a4636);
-    const leaf = new THREE.Color(berries ? 0x4d7f33 : 0x5b8f3a);
+    const leaf = turn(berries ? 0x4d7f33 : 0x5b8f3a, berries ? 0x9a5a26 : 0xb07a2c);
     const body = frosted && !meadow ? frost.clone().multiplyScalar(0.97) : leaf;
     for (let k = 0; k < 3; k++) {
       const a = k * 2.1 + rnd();

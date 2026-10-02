@@ -20,6 +20,8 @@ export interface Theme {
   exposure: number;
   /** The light fails as the race goes on: golden hour at the start, night by the finish. */
   dusk?: boolean;
+  /** Autumn: dry grass and turning leaves. Implies meadow. */
+  autumn?: boolean;
   /** Green meadow: grass instead of snow, with snow only on the road. */
   meadow?: boolean;
 }
@@ -210,6 +212,69 @@ const MEADOW: Theme = {
   meadow: true,
   exposure: 1.0,
 };
+
+const AUTUMN: Theme = {
+  ...MEADOW,
+  skyTop: 0x4a86c2,
+  skyHorizon: 0xf1dfc2,
+  fog: 0xf1dfc2,
+  fogNear: 220,
+  fogFar: 1300,
+  sun: 0xffd9a0,
+  sunIntensity: 2.8,
+  sunDir: [-0.55, 0.5, 0.4],
+  ambientGround: 0xe6cf9a,
+  // Dry grass, with the first thin snow on the road.
+  snowTint: 0x9a8b4a,
+  trackTint: 0xeef2f5,
+  autumn: true,
+};
+
+/** What a race is run in, on top of the track's own design: a season, and day or night. */
+export type Season = 'default' | 'winter' | 'spring' | 'autumn';
+
+export interface Conditions {
+  season: Season;
+  night: boolean;
+}
+
+export const NORMAL_CONDITIONS: Conditions = { season: 'default', night: false };
+
+/**
+ * The look of a track under the chosen conditions. A season replaces the
+ * track's own setting; night then takes whatever that is and turns the
+ * lights out: a dark sky with stars and aurora, a faint moon, and fog that
+ * swallows everything the headlight doesn't reach.
+ */
+export function themeFor(def: TrackDef, c: Conditions): Theme {
+  let t = def.theme;
+  if (c.season === 'winter' && t.meadow) t = DAY;
+  else if (c.season === 'spring') t = MEADOW;
+  else if (c.season === 'autumn') t = AUTUMN;
+  if (c.night) {
+    t = {
+      ...t,
+      skyTop: 0x01030a,
+      skyHorizon: 0x06121f,
+      fog: 0x040c16,
+      fogNear: 30,
+      fogFar: 380,
+      sun: 0x9fbde8,
+      sunIntensity: 0.3,
+      sunDir: [0.35, 0.7, -0.5],
+      ambientSky: 0x1c3558,
+      ambientGround: 0x0b1826,
+      ambientIntensity: 0.45,
+      snowfall: Math.min(t.snowfall, 500),
+      stars: true,
+      aurora: true,
+      night: true,
+      dusk: false,
+      exposure: 1.0,
+    };
+  }
+  return t;
+}
 
 export const TRACKS: TrackDef[] = [
   {

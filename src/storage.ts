@@ -1,5 +1,5 @@
 import { ALL_SURFACES } from './tracks';
-import type { Difficulty, SurfaceOptions } from './tracks';
+import type { Difficulty, Season, SurfaceOptions } from './tracks';
 import type { UpgradeLevels } from './sleds';
 import type { Quality } from './quality';
 
@@ -9,6 +9,19 @@ export interface TrackResult {
   bestPlace: number;
   bestTime: number;
 }
+
+/** One time on a track's record board. */
+export interface RecordEntry {
+  time: number;
+  mode: 'race' | 'trial' | 'elimination';
+  difficulty: Difficulty;
+  sled: string;
+  /** The day it was set, as YYYY-MM-DD. */
+  date: string;
+}
+
+/** How many times a track's board keeps. */
+export const RECORDS_KEPT = 5;
 
 export interface SaveData {
   /** Number of tracks unlocked, counted from the first. */
@@ -47,11 +60,21 @@ export interface SaveData {
   surfaces: SurfaceOptions;
   /** Name shown to other players online. */
   playerName: string;
+  /** The season races are run in, and whether they are run at night. */
+  season: Season;
+  night: boolean;
+  /** Race commentary on screen, and read aloud. */
+  commentary: boolean;
+  voice: boolean;
+  /** Slow motion on big jumps, near misses and close finishes. */
+  slowmo: boolean;
+  /** The best few times set on each track, by track id, quickest first. */
+  records: Record<string, RecordEntry[]>;
   /** Keyed by `${trackId}:${difficulty}`. */
   results: Record<string, TrackResult>;
 }
 
-const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, quality: 'auto', music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', topZoom: 1, highZoom: 1, sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', results: {} };
+const DEFAULTS: SaveData = { unlocked: 1, difficulty: 'easy', lastTrack: 0, muted: false, mirror: true, quality: 'auto', music: true, coins: 0, paints: ['amber'], paint: 'amber', upgrades: { engine: 0, turbo: 0, skis: 0 }, stripe: -1, mode: 'race', cup: 0, trials: {}, cups: {}, camera: 'chase', topZoom: 1, highZoom: 1, sled: 'trailblazer', surfaces: { ...ALL_SURFACES }, playerName: '', season: 'default', night: false, commentary: true, voice: false, slowmo: true, records: {}, results: {} };
 
 export function loadSave(): SaveData {
   try {
@@ -60,7 +83,7 @@ export function loadSave(): SaveData {
   } catch {
     // Storage unavailable or corrupt: start fresh.
   }
-  return { ...DEFAULTS, surfaces: { ...ALL_SURFACES }, results: {} };
+  return { ...DEFAULTS, surfaces: { ...ALL_SURFACES }, results: {}, records: {} };
 }
 
 export function writeSave(save: SaveData) {

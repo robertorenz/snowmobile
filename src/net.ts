@@ -1,5 +1,5 @@
 import { Peer, DataConnection } from 'peerjs';
-import type { Difficulty, SurfaceOptions } from './tracks';
+import type { Conditions, Difficulty, SurfaceOptions } from './tracks';
 import type { SledNet } from './sled';
 
 /**
@@ -49,6 +49,8 @@ export interface StartMsg {
   cup?: { cup: number; race: number };
   /** The host's surface settings, so everyone races the same road. */
   surfaces: SurfaceOptions;
+  /** The host's season and time of day. */
+  cond?: Conditions;
 }
 
 type Msg =

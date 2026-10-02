@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import './style.css';
-import { TRACKS, CUPS, CUP_POINTS, MEDAL_FACTORS, Difficulty, ALL_SURFACES, SurfaceOptions } from './tracks';
+import { TRACKS, CUPS, CUP_POINTS, MEDAL_FACTORS, Difficulty, ALL_SURFACES, SurfaceOptions, Conditions, NORMAL_CONDITIONS, themeFor } from './tracks';
+import { Commentator } from './commentary';
+import { Podium } from './podium';
 import { World } from './world';
 import { Race, NetRace, RaceOptions, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
 import { SLEDS, sledById, paintById, tunedSled, UPGRADE_PRICES, RACE_COINS, MEDAL_COINS, CUP_COINS } from './sleds';
@@ -13,8 +15,8 @@ import { SLED, Sled } from './sled';
 import { Input } from './input';
 import { AudioEngine } from './audio';
 import { UI, HudState, RoomView, ResultsData } from './ui';
-import { loadSave, writeSave, resultKey, loadGhost, saveGhost } from './storage';
-import { clamp, lerp, wrapAngle, formatTime } from './util';
+import { loadSave, writeSave, resultKey, loadGhost, saveGhost, RECORDS_KEPT } from './storage';
+import { clamp, lerp, wrapAngle, formatTime, ordinal } from './util';
 
 const STEP = 1 / 60;
 const hexColor = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -108,6 +110,13 @@ class Game {
           void this.startRace(CUPS[this.save.cup].tracks[0]);
         } else void this.startRace(this.ui.selectedTrack);
       },
+      onConditions: (season, night) => {
+        this.save.season = season;
+        this.save.night = night;
+        writeSave(this.save);
+        // Show the new season behind the menu.
+        if (this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
+      },
       onMode: (mode) => {
         this.save.mode = mode;
         writeSave(this.save);
@@ -191,11 +200,16 @@ class Game {
           writeSave(this.save);
           return;
         }
-        if (key === 'mirror') this.save.mirror = on;
-        else this.save.surfaces[key] = on;
+        if (key === 'mirror' || key === 'commentary' || key === 'voice' || key === 'slowmo') {
+          this.save[key] = on;
+          if (!on && (key === 'commentary' || key === 'voice')) this.commentator.reset();
+          writeSave(this.save);
+          return;
+        }
+        this.save.surfaces[key] = on;
         writeSave(this.save);
         // A surface change means a different road: rebuild the one behind the menu.
-        if (key !== 'mirror' && this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
+        if (this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
       },
     });
 
@@ -320,13 +334,16 @@ class Game {
     net: NetRace | null = null,
     surfaces: SurfaceOptions = this.save.surfaces,
     opts: RaceOptions = {},
+    cond: Conditions = this.conditions(),
   ) {
     if (this.busy) return;
     this.busy = true;
+    this.endPodium(false);
     const def = TRACKS[index];
+    const key = `${def.id}|${cond.season}|${cond.night}`;
     const s = this.world?.surfaces;
     const sameRoad = !!s && s.ice === surfaces.ice && s.stone === surfaces.stone && s.grass === surfaces.grass;
-    const rebuild = !this.world || this.world.def !== def || !sameRoad;
+    const rebuild = !this.world || this.worldKey !== key || !sameRoad;
     try {
       if (rebuild) {
         this.ui.showLoading(true);
@@ -337,7 +354,9 @@ class Game {
       this.race = null;
       if (rebuild) {
         this.world?.dispose();
-        this.world = new World(def, { ...surfaces }, this.q);
+        // The same course, dressed for the season and time of day.
+        this.world = new World({ ...def, theme: themeFor(def, cond) }, { ...surfaces }, this.q);
+        this.worldKey = key;
       }
       const world = this.world!;
       this.trackIndex = index;
@@ -346,6 +365,11 @@ class Game {
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
       if (world.theme.night || world.theme.dusk) this.headlight = addHeadlight(lit);
+      // In the dark every sled shows a headlamp and a tail light.
+      if (world.theme.night) this.race.sleds.forEach(addLamps);
+      this.commentator.reset();
+      this.slowLeft = this.slowCool = 0;
+      this.timeScale = 1;
       world.setDarkness(0);
       this.camSnap = true;
       this.finishTimer = 0;
@@ -360,6 +384,14 @@ class Game {
       this.ui.showLoading(false);
       this.busy = false;
     }
+  }
+
+  /** The key of the world that is built: track, season and time of day. */
+  private worldKey = '';
+
+  /** The season and time of day chosen on the menu. */
+  private conditions(): Conditions {
+    return { season: this.save.season, night: this.save.night };
   }
 
   private async startRace(index: number) {
@@ -551,7 +583,7 @@ class Game {
       grid.push({ kind: 'ai', id: '', name: AI_NAMES[k], color: RIDER_COLORS[RACERS - 1 - k], sled: aiSled(k) });
     }
     humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i], sled: p.sled }));
-    const msg: StartMsg = { t: 'start', track, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces } };
+    const msg: StartMsg = { t: 'start', track, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces }, cond: this.conditions() };
     if (this.champ) msg.cup = { cup: this.champ.cup, race: this.champ.race };
     net.hostStart(msg);
     void this.startOnline(msg);
@@ -571,7 +603,7 @@ class Game {
     await this.whenIdle();
     this.ui.closeModal();
     this.ui.showMenu(false);
-    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost }, msg.surfaces ?? ALL_SURFACES);
+    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost }, msg.surfaces ?? ALL_SURFACES, {}, msg.cond ?? NORMAL_CONDITIONS);
     this.mode = 'race';
     this.paused = false;
     this.netTimer = 0;
@@ -613,7 +645,9 @@ class Game {
       if (this.mode === 'menu') this.ui.renderMenu();
     }
     if (this.mode === 'race') {
-      if (this.replay || this.watch) {
+      if (this.podium) {
+        if (this.input.consume('Escape', 'Enter', 'KeyP') || this.podiumT > 14) this.endPodium(true);
+      } else if (this.replay || this.watch) {
         if (this.input.consume('Escape', 'KeyP', 'Enter')) this.backToResults();
         // Left and right switch which rider the camera follows.
         const step = (this.input.consume('ArrowRight', 'KeyD') ? 1 : 0) - (this.input.consume('ArrowLeft', 'KeyA') ? 1 : 0);
@@ -635,13 +669,20 @@ class Game {
       this.clock += dt;
       this.replay.t = (this.replay.t + dt) % Math.max(1, race.replayLength);
       race.showReplay(this.replay.t, dt);
+    } else if (this.podium) {
+      // Prize-giving: the race waits.
+      this.clock += dt;
+      this.podiumT += dt;
     } else if (!this.paused) {
       this.clock += dt;
       const inp = this.mode === 'race' ? this.input.read(dt) : null;
+      // Big moments play out in slow motion: the race clock runs slow, the screen doesn't.
+      const sim = dt * this.pace(race, world, dt);
       // Simulate exactly up to this frame, in slices no longer than STEP, so
       // motion stays smooth on high-refresh displays.
-      const steps = Math.max(1, Math.ceil(dt / STEP));
-      for (let i = 0; i < steps; i++) race.step(dt / steps, inp);
+      const steps = Math.max(1, Math.ceil(sim / STEP));
+      for (let i = 0; i < steps; i++) race.step(sim / steps, inp);
+      if (this.mode === 'race' && this.save.commentary) this.commentator.update(race, race.events, dt);
       this.handleEvents(race);
       if (race.phase === 'finished' && !this.resultsShown) {
         this.finishTimer += dt;
@@ -674,7 +715,7 @@ class Game {
     if (player && this.mode === 'race') {
       const tr = world.track;
       const dStart = Math.hypot(player.pos.x - tr.px[tr.startIdx], player.pos.z - tr.pz[tr.startIdx]);
-      this.audio.setCrowd(this.paused ? 0 : 1 - dStart / 130);
+      this.audio.setCrowd(this.podium ? 1 : this.paused ? 0 : 1 - dStart / 130);
       const train = world.train;
       if (train.running && !this.trainWasRunning) this.audio.whistle(1 - player.pos.distanceTo(train.pos) / 420);
       this.trainWasRunning = train.running;
@@ -689,15 +730,81 @@ class Game {
     );
 
     const target = player ?? race.sleds.reduce((a, b) => (a.place < b.place ? a : b));
-    if (!this.paused) this.updateCamera(dt, this.watch ?? target, world, !player || !!this.replay);
+    if (this.podium) this.podium.update(dt, this.camera);
+    else if (!this.paused) this.updateCamera(dt, this.watch ?? target, world, !player || !!this.replay);
     if (this.photo && player) this.photoCamera(player, world);
     world.update(this.paused ? 0 : dt, this.camera, this.focus.copy(target.pos));
     if (this.mode === 'race' && player) this.ui.updateHud(this.hudState(race, player));
     this.renderer.render(world.scene, this.camera);
     this.input.showTouch(this.mode === 'race' && !this.paused && !this.resultsShown);
-    const mirror = this.mode === 'race' && !!player && this.save.mirror && this.q.mirror && !this.photo;
+    const mirror = this.mode === 'race' && !!player && this.save.mirror && this.q.mirror && !this.photo && !this.podium;
     this.ui.showMirror(mirror);
     if (mirror && player) this.renderMirror(world, player);
+  }
+
+  // ---------- Slow motion ----------
+
+  private slowLeft = 0;
+  private slowCool = 0;
+  private timeScale = 1;
+  private commentator = new Commentator(() => this.save.voice);
+
+  /**
+   * How fast the race clock should run this frame: 1 normally, about a
+   * third for a moment on a big jump, a near miss with traffic or a close
+   * finish. Solo races only, since an online race has one clock for everyone.
+   */
+  private pace(race: Race, world: World, dt: number) {
+    const me = race.player;
+    this.slowCool = Math.max(0, this.slowCool - dt);
+    if (me && this.save.slowmo && this.mode === 'race' && !race.online && race.phase === 'racing' && this.slowLeft <= 0 && this.slowCool <= 0) {
+      const gap = me.pos.y - world.ground(me.pos.x, me.pos.z, me.idx);
+      const left = race.finishLine - me.progress;
+      if (!me.grounded && me.airTime > 0.35 && (gap > 4.5 || (me.trickAngle > 0.5 && gap > 2.5))) this.slowLeft = 1.2;
+      else if (me.speed > 14 && world.vehicles.some((v) => Math.hypot(v.x - me.pos.x, v.z - me.pos.z) < v.halfLength + 4.5)) this.slowLeft = 0.8;
+      else if (left > 0 && left < 22 && me.speed > 10 && race.sleds.some((o) => o !== me && !o.gone && !o.finished && Math.abs(o.progress - me.progress) < 7)) this.slowLeft = 1.5;
+      if (this.slowLeft > 0) this.slowCool = 12;
+    }
+    this.slowLeft = Math.max(0, this.slowLeft - dt);
+    const target = this.slowLeft > 0 ? 0.3 : 1;
+    this.timeScale += (target - this.timeScale) * (1 - Math.exp(-(target < 1 ? 14 : 5) * dt));
+    return this.timeScale;
+  }
+
+  // ---------- Podium ----------
+
+  private podium: Podium | null = null;
+  private podiumT = 0;
+  /** Set when a race ends: the prize-giving plays once, before the results. */
+  private podiumDue = false;
+
+  private startPodium(race: Race) {
+    const top = race
+      .standings()
+      .filter((s) => !s.out)
+      .slice(0, 3)
+      .map((s) => s.sled);
+    for (const s of race.sleds) s.model.group.visible = false;
+    this.podium = new Podium(race.world, top);
+    this.podiumT = 0;
+    this.ui.closeModal();
+    this.ui.showHud(false);
+    this.ui.showBar(top.map((s, k) => `${ordinal(k + 1)}  ${s.name}`).join('   ·   '), 'Continue');
+    this.audio.fanfare();
+  }
+
+  /** Clears the podium away and, if asked, moves on to the results. */
+  private endPodium(showResults: boolean) {
+    if (!this.podium) return;
+    this.podium.dispose();
+    this.podium = null;
+    for (const s of this.race?.sleds ?? []) s.model.group.visible = !s.gone;
+    this.ui.showBar(null);
+    this.camSnap = true;
+    if (showResults && this.lastResults) {
+      this.ui.showHud(true, TRACKS[this.trackIndex]);
+      this.ui.showResults(this.lastResults);
+    }
   }
 
   // ---------- Photo mode ----------
@@ -871,10 +978,12 @@ class Game {
         player.item ? 'SNOWBALL  ·  E to throw' : '',
         player.shield ? 'SHIELD' : '',
         player.draft > 0.5 ? 'SLIPSTREAM' : '',
+        player.packed > 0.6 ? 'PACKED SNOW' : '',
       ].filter(Boolean),
       banner,
       bannerTone: tone,
       hint,
+      commentary: this.save.commentary ? this.commentator.line : '',
       racers: race.sleds.map((s) => ({ x: s.pos.x, z: s.pos.z, color: hexColor(s.color), isPlayer: s.isPlayer })),
     };
   }
@@ -885,7 +994,19 @@ class Game {
     const def = TRACKS[this.trackIndex];
     const online = race.online;
     const standings = race.standings();
+    this.podiumDue = !online && race.mode !== 'trial' && !player.eliminated && standings.length >= 3;
+    // A full run of the course against the clock goes on the track's record board.
+    let record = 0;
+    if (!online && race.mode !== 'elimination' && player.finished && player.finishTime > 0) {
+      const list = (this.save.records[def.id] ??= []);
+      const entry = { time: player.finishTime, mode: race.mode, difficulty: race.difficulty, sled: this.save.sled, date: new Date().toISOString().slice(0, 10) };
+      list.push(entry);
+      list.sort((a, b) => a.time - b.time);
+      list.length = Math.min(list.length, RECORDS_KEPT);
+      record = list.indexOf(entry) + 1;
+    }
     const base = {
+      record,
       track: def,
       difficulty: race.difficulty,
       standings,
@@ -976,6 +1097,11 @@ class Game {
     data.canReplay = !!race && race.replayLength > 3;
     data.isHost = !!this.net?.isHost;
     this.lastResults = data;
+    if (this.podiumDue && race) {
+      this.podiumDue = false;
+      this.startPodium(race);
+      return;
+    }
     this.ui.showResults(data);
   }
 
@@ -1016,6 +1142,10 @@ class Game {
   }
 
   private backToResults() {
+    if (this.podium) {
+      this.endPodium(true);
+      return;
+    }
     const race = this.race;
     this.stopWatching();
     this.camSnap = true;
@@ -1147,6 +1277,15 @@ function addHeadlight(sled: Sled) {
   light.target.position.set(0, 0, 26);
   sled.model.group.add(light, light.target);
   return light;
+}
+
+/** Lamps that glow in the dark: a headlamp at the front, a red light at the tail. */
+function addLamps(sled: Sled) {
+  const front = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff3d0, fog: false }));
+  front.position.set(0, 0.8, 1.2);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.06), new THREE.MeshBasicMaterial({ color: 0xff2a2a, fog: false }));
+  tail.position.set(0, 0.7, -1.32);
+  sled.model.group.add(front, tail);
 }
 
 const game = new Game();

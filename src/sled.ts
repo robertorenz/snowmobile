@@ -64,6 +64,9 @@ export const SLED = {
   gravity: 9.81 * 1.6,
 };
 
+/** Top speed gained on fully packed snow. */
+export const PACKED_BONUS = 0.05;
+
 const _n = new THREE.Vector3();
 const _left = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -80,6 +83,8 @@ export class Sled {
   trickAngle = 0;
   /** Outcome of the last landing, for the HUD to announce: flips landed, or -1 for a bail. Cleared once read. */
   trickResult = 0;
+  /** 0..1: how packed the snow under the sled is. Packed snow is faster. */
+  packed = 0;
   /** 0..1: how well tucked in behind another sled this one is. */
   draft = 0;
   /** A shield soaks up the next hit. */
@@ -307,7 +312,10 @@ export class Sled {
       this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
       const rough = 1 - (1 - (patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1)) * D.rough;
-      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough) * (1 + 0.09 * this.draft) * (1 - 0.22 * this.damage);
+      // Snow that others have already ridden over is packed and quicker.
+      const firm = !this.offTrack && !onIce && rough === 1 ? world.trails.packedAt(this.idx, this.lateral) : 0;
+      this.packed += (firm - this.packed) * Math.min(1, 5 * dt);
+      const cap = P.maxSpeed * D.speed * this.speedScale * (this.boosting ? P.boostSpeed : 1) * (this.offTrack ? D.offroad : rough) * (1 + 0.09 * this.draft) * (1 - 0.22 * this.damage) * (1 + PACKED_BONUS * this.packed);
       const bite = onIce ? P.iceTraction : 1;
       const acc = P.accel * D.accel * (this.boosting ? P.boostAccel : 1) * bite;
 

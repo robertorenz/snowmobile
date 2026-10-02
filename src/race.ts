@@ -113,7 +113,8 @@ export class Race {
   private humans: Sled[] = [];
   private autopilot: AIDriver | null = null;
   private lastCount = 4;
-  private finishLine: number;
+  /** Path distance at which the race ends. */
+  readonly finishLine: number;
   private grid: GridEntry[];
 
   constructor(
@@ -125,6 +126,7 @@ export class Race {
     opts: RaceOptions = {},
   ) {
     this.mode = opts.mode ?? 'race';
+    world.trails.reset();
     const { track, def } = world;
     const cfg = DIFFICULTIES[difficulty];
     this.finishLine = track.startS + track.raceLength;
@@ -239,8 +241,12 @@ export class Race {
       if (s.gone) continue;
       if (s.remote) s.updateRemote(dt, world);
       else s.update(dt, world, frozen);
-      if (!frozen) this.emitSpray(s);
+      if (!frozen) {
+        this.emitSpray(s);
+        world.trails.record(s);
+      }
     }
+    world.trails.flush();
     this.collide();
     if (!frozen) this.extras(dt);
     if (!frozen) this.modeRules(dt);
