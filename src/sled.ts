@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { buildSledModel, poseSledModel, SledModel } from './sledModel';
 import type { World } from './world';
 import { clamp, lerp, wrapAngle } from './util';
-import { GATE_HEIGHT, ICE, SHALE, ROCK, GRASS } from './track';
+import { GATE_HEIGHT, SNOW, ICE, SHALE, ROCK, GRASS } from './track';
+import type { Shortcut } from './track';
+import { BRIDGE_RIDEABLE } from './hazards';
 import { DEFAULT_SLED, SledSpec } from './sleds';
 
 /** A sled's state as sent between computers in an online race. */
@@ -83,6 +85,10 @@ export class Sled {
   trickAngle = 0;
   /** Outcome of the last landing, for the HUD to announce: flips landed, or -1 for a bail. Cleared once read. */
   trickResult = 0;
+  /** The shortcut the sled is on, if it is on one. */
+  shortcut: Shortcut | null = null;
+  /** Seconds until a rolling rock or log can knock this sled about again. */
+  hazardCool = 0;
   /** 0..1: how packed the snow under the sled is. Packed snow is faster. */
   packed = 0;
   /** 0..1: how well tucked in behind another sled this one is. */
@@ -306,10 +312,10 @@ export class Sled {
 
     if (this.grounded) {
       // Lake ice is slippery but open: no deep snow to bog down in.
-      const patch = track.surfaceAt(this.idx, this.lateral);
+      const patch = this.shortcut ? SNOW : track.surfaceAt(this.idx, this.lateral);
       const lakeIce = terrain.iceAt(pos.x, pos.z) > 0.5;
       const onIce = lakeIce || patch === ICE;
-      this.offTrack = !lakeIce && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
+      this.offTrack = !lakeIce && !this.shortcut && Math.abs(this.lateral) > track.hw[this.idx] + 0.8;
       // Loose stone, bare rock and grass all hold a sled back; rock most of all.
       const rough = 1 - (1 - (patch === SHALE ? 0.74 : patch === ROCK ? 0.6 : patch === GRASS ? 0.86 : 1)) * D.rough;
       // Snow that others have already ridden over is packed and quicker.
@@ -401,7 +407,7 @@ export class Sled {
     }
 
     // --- Into the river: fished out and put back on the track ---
-    if (this.grounded && terrain.wetAt(pos.x, pos.z) > 0.7) {
+    if (this.grounded && terrain.wetAt(pos.x, pos.z) > 0.7 && pos.y < terrain.height(pos.x, pos.z) + 0.6) {
       this.resetToTrack(world);
       this.impact = 9;
     }
@@ -419,8 +425,8 @@ export class Sled {
       }
     }
 
-    // --- Trees and rocks ---
-    world.colliders.near(pos.x, pos.z, (c) => {
+    // --- Trees, rocks and anything solid that moves ---
+    const bump = (c: { x: number; z: number; r: number }) => {
       const dx = pos.x - c.x;
       const dz = pos.z - c.z;
       const min = c.r + P.radius * 0.8;
@@ -442,11 +448,33 @@ export class Sled {
         }
         this.impact = Math.max(this.impact, -vn);
       }
-    });
+    };
+    world.colliders.near(pos.x, pos.z, bump);
+    for (const m of world.hazards.movers) if (m.solid) bump(m);
 
     // --- Where are we on the course? ---
     const old = this.idx;
-    this.idx = track.nearest(pos.x, pos.z, old);
+    // On a shortcut the road's own samples are a long way off, so the sled is placed
+    // by how far along the shortcut it has come.
+    let cut = track.shortcuts.length ? track.shortcutAt(pos.x, pos.z) : null;
+    const near = track.nearest(pos.x, pos.z, old);
+    if (cut) {
+      const off = (pos.x - track.px[near]) * track.lx[near] + (pos.z - track.pz[near]) * track.lz[near];
+      const by = (pos.x - track.px[near]) * track.tx[near] + (pos.z - track.pz[near]) * track.tz[near];
+      // Still (or again) on the road itself, where the two run together.
+      if (Math.abs(off) <= track.hw[near] + 0.8 && Math.abs(by) < 6) cut = null;
+    }
+    if (cut) {
+      const want = track.wrap(cut.from + Math.round(track.scT * cut.span));
+      let ahead = want - old;
+      if (track.closed) {
+        if (ahead > track.n / 2) ahead -= track.n;
+        else if (ahead < -track.n / 2) ahead += track.n;
+      }
+      this.idx = ahead > 0 && ahead <= cut.span ? want : old;
+    } else this.idx = near;
+    this.shortcut = cut;
+    const cutLateral = track.scLat;
     let step = this.idx - old;
     if (track.closed) {
       if (step > track.n / 2) step -= track.n;
@@ -456,11 +484,11 @@ export class Sled {
     const i = this.idx;
     const rx = pos.x - track.px[i];
     const rz = pos.z - track.pz[i];
-    this.lateral = rx * track.lx[i] + rz * track.lz[i];
-    this.progress = this.progressBase + clamp(rx * track.tx[i] + rz * track.tz[i], -track.ds, track.ds);
+    this.lateral = cut ? cutLateral : rx * track.lx[i] + rz * track.lz[i];
+    this.progress = this.progressBase + (cut ? 0 : clamp(rx * track.tx[i] + rz * track.tz[i], -track.ds, track.ds));
 
     // --- Bridges and tunnels have solid sides ---
-    if (track.walled[i]) {
+    if (track.walled[i] && !cut) {
       const limit = track.hw[i] - 0.7;
       if (Math.abs(this.lateral) > limit) {
         const over = this.lateral - Math.sign(this.lateral) * limit;
@@ -474,6 +502,25 @@ export class Sled {
           vel.z = (vel.z - track.lz[i] * vlat * 1.2) * 0.985;
           if (Math.abs(vlat) > 3) this.impact = Math.max(this.impact, Math.abs(vlat));
         }
+      }
+    }
+
+    // --- A lifted drawbridge is a wall across the road ---
+    for (const c of track.crossings) {
+      if (c.kind !== 'drawbridge' || world.bridgeAngleOf(c) <= BRIDGE_RIDEABLE) continue;
+      const j = c.idx;
+      const bx = pos.x - track.px[j];
+      const bz = pos.z - track.pz[j];
+      const along = bx * track.tx[j] + bz * track.tz[j];
+      if (along < -c.half - 1.4 || along > -c.half + 1.6 || Math.abs(bx * track.lx[j] + bz * track.lz[j]) > track.hw[j] || pos.y > c.y + 2.5) continue;
+      const back = along + c.half + 1.4;
+      pos.x -= track.tx[j] * back;
+      pos.z -= track.tz[j] * back;
+      const va = vel.x * track.tx[j] + vel.z * track.tz[j];
+      if (va > 0) {
+        vel.x -= track.tx[j] * va * 1.3;
+        vel.z -= track.tz[j] * va * 1.3;
+        this.impact = Math.max(this.impact, va);
       }
     }
 

@@ -402,6 +402,20 @@ export class Race {
       }
     }
 
+    // Rolling rocks and logs: get in the way of one and it knocks you about. A log can be jumped.
+    for (const s of this.sleds) s.hazardCool = Math.max(0, s.hazardCool - dt);
+    for (const m of world.hazards.movers) {
+      if (m.solid || !m.active) continue;
+      for (const s of this.sleds) {
+        if (s.remote || s.gone || s.hazardCool > 0) continue;
+        if (Math.hypot(s.pos.x - m.x, s.pos.z - m.z) > m.r + 1 || s.pos.y - m.y > m.height) continue;
+        s.struck();
+        s.hazardCool = 1.5;
+        s.impact = Math.max(s.impact, 9);
+        if (s === p) this.events.push('struck');
+      }
+    }
+
     // Avalanche: breaks loose behind the leading rider and runs down the course faster than most can ride.
     const av = track.def.avalanche;
     if (av && !this.avalanche && this.avalanches === 0) {

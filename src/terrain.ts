@@ -191,7 +191,7 @@ export class Terrain {
             h = h * (1 - m) + c.y * m;
           } else {
             const m = (1 - smoothstep(c.half - 1.5, c.half + 1.5, q)) * reach;
-            h = h * (1 - m) + (c.y - (c.kind === 'river' ? RIVER_DEPTH : CHASM_DEPTH)) * m;
+            h = h * (1 - m) + (c.y - (c.kind === 'chasm' ? CHASM_DEPTH : RIVER_DEPTH)) * m;
             wet[idx] = Math.max(wet[idx], m);
           }
         }
@@ -209,6 +209,54 @@ export class Terrain {
           const sideOf = track.surfSide[bi];
           const across = sideOf === 0 ? 1 : smoothstep(-1.2, 1.2, dd * side * sideOf);
           surf[idx * 4 + track.surface[bi] - 1] = track.surfFade[bi] * across;
+        }
+      }
+    }
+    // Shortcuts: a narrow groomed way cut across country. Laid over the finished ground, leaving the road itself alone.
+    for (const sc of track.shortcuts) {
+      const reach = sc.hw + 18;
+      const ix0 = Math.max(0, Math.floor((sc.minX - reach - minX) / cell));
+      const ix1 = Math.min(nx - 1, Math.ceil((sc.maxX + reach - minX) / cell));
+      const iz0 = Math.max(0, Math.floor((sc.minZ - reach - minZ) / cell));
+      const iz1 = Math.min(nz - 1, Math.ceil((sc.maxZ + reach - minZ) / cell));
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const z = minZ + iz * cell;
+        for (let ix = ix0; ix <= ix1; ix++) {
+          const x = minX + ix * cell;
+          let best = Infinity;
+          let bk = 0;
+          for (let k = 0; k < sc.n; k++) {
+            const ex = x - sc.x[k];
+            const ez = z - sc.z[k];
+            const e = ex * ex + ez * ez;
+            if (e < best) {
+              best = e;
+              bk = k;
+            }
+          }
+          const d = Math.sqrt(best);
+          if (d > reach) continue;
+          const k0 = Math.max(0, bk - 1);
+          const k1 = Math.min(sc.n - 1, bk + 1);
+          const tx = sc.x[k1] - sc.x[k0];
+          const tz = sc.z[k1] - sc.z[k0];
+          const tl = Math.hypot(tx, tz) || 1;
+          const rx = x - sc.x[bk];
+          const rz = z - sc.z[bk];
+          const along = clamp((rx * tx + rz * tz) / tl, -2, 2);
+          const level = sc.y[bk] + (along * (sc.y[k1] - sc.y[k0])) / tl;
+          const idx = iz * nx + ix;
+          // 0 on the road proper, 1 clear of it: the fork and the merge keep the road's own shape.
+          const keep = smoothstep(hwv[idx] + 1, hwv[idx] + 9, dist[idx]);
+          const m = (1 - smoothstep(sc.hw + 1.5, reach, d)) * keep;
+          heights[idx] = heights[idx] * (1 - m) + level * m;
+          if (sc.ice) ice[idx] = Math.max(ice[idx], (1 - smoothstep(sc.hw - 1.2, sc.hw + 0.3, d)) * keep);
+          if (d - sc.hw < dist[idx] - hwv[idx]) {
+            dist[idx] = d;
+            lat[idx] = (rx * tz - rz * tx) / tl;
+            hwv[idx] = sc.hw;
+            surf.fill(0, idx * 4, idx * 4 + 4);
+          }
         }
       }
     }

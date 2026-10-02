@@ -37,8 +37,33 @@ export interface JumpDef {
  * Things laid across the course that must be jumped. Each gets a ramp in front of it.
  * river: land in the water and you restart before the ramp. chasm: the same, with a longer gap.
  * gate: a fence across the course; hit it and you restart. highway: a road with traffic to clear.
+ * drawbridge: a river with a lifting bridge and no ramp: cross while it's down, or wait.
  */
-export type CrossingKind = 'river' | 'chasm' | 'gate' | 'highway';
+export type CrossingKind = 'river' | 'chasm' | 'gate' | 'highway' | 'drawbridge';
+
+/**
+ * A shortcut: a narrow way cut across country from one point of the course
+ * to a later one (both 0..1 fractions of its length). Shorter than the road,
+ * and harder to stay on. The AI keeps to the road.
+ */
+export interface ShortcutDef {
+  from: number;
+  to: number;
+  /** Full width in metres; the default is 7. */
+  width?: number;
+  surface?: 'snow' | 'ice';
+}
+
+/**
+ * Hazards that move.
+ * plough: a snowplough crawling round the course in one lane (-1 right edge to 1 left edge).
+ * rockfall: boulders that come bounding across a stretch of road from one side.
+ * logs: logs rolling down a stretch of road toward the riders.
+ */
+export type HazardDef =
+  | { kind: 'plough'; lane: number; speed?: number; start?: number }
+  | { kind: 'rockfall'; at: number; length: number; side: 1 | -1; every?: number }
+  | { kind: 'logs'; from: number; to: number; count?: number };
 
 export interface TrackDef {
   id: string;
@@ -82,6 +107,8 @@ export interface TrackDef {
   avalanche?: { at: number; length: number };
   /** Crossings, each placed at a 0..1 fraction of the track's length. Put them on straights. */
   crossings?: { at: number; kind: CrossingKind }[];
+  shortcuts?: ShortcutDef[];
+  hazards?: HazardDef[];
   /** A frozen lake: an ellipse of flat, slippery ice at height y. */
   lake?: { x: number; z: number; rx: number; rz: number; y: number };
   seed: number;
@@ -321,6 +348,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.86, length: 120, height: 14, count: 1 },
     ],
     river: { from: 0.28, to: 0.5, side: 1, gap: 19, width: 13 },
+    shortcuts: [{ from: 0.6141, to: 0.8866, width: 8 }],
+    hazards: [{ kind: 'plough', lane: -0.8, start: 0.3 }],
     obstacles: 4,
     seed: 11,
     mountain: 70,
@@ -379,6 +408,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.52, length: 70, height: 2, count: 3 },
       { at: 0.3, length: 150, height: 25, count: 1 },
     ],
+    shortcuts: [{ from: 0.5411, to: 0.7314, width: 8, surface: 'ice' }],
     obstacles: 7,
     seed: 23,
     mountain: 110,
@@ -449,6 +479,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.22, length: 70, height: 2, count: 3 },
       { at: 0.68, length: 80, height: 2.2, count: 4 },
     ],
+    hazards: [{ kind: 'rockfall', at: 0.48, length: 150, side: 1 }],
     obstacles: 8,
     seed: 37,
     mountain: 120,
@@ -511,6 +542,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.36, length: 60, height: 1.8, count: 3 },
       { at: 0.7, length: 50, height: 1.6, count: 3 },
     ],
+    shortcuts: [{ from: 0.4322, to: 0.5985 }],
     obstacles: 9,
     seed: 51,
     mountain: 100,
@@ -593,6 +625,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.4, length: 70, height: 2, count: 4 },
       { at: 0.72, length: 60, height: 1.8, count: 3 },
     ],
+    hazards: [{ kind: 'logs', from: 0.858, to: 0.895 }],
     obstacles: 10,
     seed: 67,
     mountain: 110,
@@ -649,6 +682,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.76, length: 64, height: 1.8, count: 4 },
     ],
     river: { from: 0.02, to: 0.34, side: 1, gap: 19, width: 14 },
+    crossings: [{ at: 0.8774, kind: 'drawbridge' }],
     obstacles: 6,
     seed: 79,
     mountain: 60,
@@ -804,7 +838,7 @@ export const TRACKS: TrackDef[] = [
     rollers: [{ at: 0.3, length: 60, height: 1.8, count: 3 }],
     crossings: [
       { at: 0.5, kind: 'river' },
-      { at: 0.955, kind: 'river' },
+      { at: 0.955, kind: 'drawbridge' },
     ],
     obstacles: 6,
     seed: 101,
@@ -855,6 +889,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.42, kind: 'gate' },
       { at: 0.955, kind: 'gate' },
     ],
+    hazards: [{ kind: 'logs', from: 0.74, to: 0.83 }],
     obstacles: 6,
     seed: 107,
     mountain: 55,
@@ -902,6 +937,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.06, kind: 'highway' },
       { at: 0.5, kind: 'highway' },
     ],
+    hazards: [{ kind: 'plough', lane: 0.8, start: 0.75 }],
     obstacles: 5,
     seed: 113,
     mountain: 90,
@@ -972,6 +1008,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.68, kind: 'highway' },
       { at: 0.86, kind: 'chasm' },
     ],
+    hazards: [{ kind: 'rockfall', at: 0.22, length: 200, side: -1 }],
     obstacles: 8,
     seed: 127,
     mountain: 130,
@@ -1029,6 +1066,7 @@ export const TRACKS: TrackDef[] = [
       { at: 0.785, length: 210, amp: 11, waves: 2 },
     ],
     rollers: [{ at: 0.2, length: 130, height: 16, count: 1 }],
+    shortcuts: [{ from: 0.4282, to: 0.5822 }],
     obstacles: 6,
     rugged: 1,
     crags: 110,
@@ -1100,6 +1138,8 @@ export const TRACKS: TrackDef[] = [
       { at: 0.82, length: 220, amp: 12, waves: 2.5 },
     ],
     crossings: [{ at: 0.95, kind: 'chasm' }],
+    shortcuts: [{ from: 0.1517, to: 0.2712, width: 8, surface: 'ice' }],
+    hazards: [{ kind: 'rockfall', at: 0.33, length: 200, side: 1 }],
     obstacles: 8,
     rugged: 1,
     crags: 120,

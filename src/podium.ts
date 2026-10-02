@@ -72,7 +72,7 @@ export class Podium {
     // Backdrop board on two posts.
     const board = new THREE.Mesh(
       new THREE.PlaneGeometry(13, 3.2),
-      new THREE.MeshBasicMaterial({ map: label('POWDER RUSH', 1024, 256, 'italic 900 150px "Segoe UI", Arial, sans-serif', '#f3f8fc', '#0d2032'), side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: label('POWDER RUSH', 1024, 256, 'italic 900 120px "Segoe UI", Arial, sans-serif', '#f3f8fc', '#0d2032'), side: THREE.DoubleSide }),
     );
     board.position.set(0, 4.3, -3.2);
     this.group.add(board);

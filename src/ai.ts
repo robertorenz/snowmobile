@@ -3,6 +3,7 @@ import type { World } from './world';
 import type { DifficultyDef } from './tracks';
 import { clamp, wrapAngle } from './util';
 import { ICE } from './track';
+import { bridgeAngle } from './hazards';
 
 /**
  * Drives a sled around the course: steers at a point ahead on its chosen
@@ -64,14 +65,14 @@ export class AIDriver {
     // Obstacles: if the line runs into one, pass on the side with more room.
     let dodging = false;
     let blocked = false;
-    for (const o of track.obstacles) {
+    const consider = (o: { idx: number; lateral: number; radius: number }) => {
       let ahead = o.idx - s.idx;
       if (track.closed) {
         if (ahead < -track.n / 2) ahead += track.n;
         else if (ahead > track.n / 2) ahead -= track.n;
       }
       const dist = ahead * track.ds;
-      if (dist < -3 || dist > 30 + speed * 1.9) continue;
+      if (dist < -3 || dist > 30 + speed * 1.9) return;
       const clear = o.radius + 2.8;
       // Pass on the side we're already on, unless there's no room there.
       let side = s.lateral >= o.lateral ? 1 : -1;
@@ -82,7 +83,10 @@ export class AIDriver {
       }
       // Still lined up with it and close: ease off until we're clear.
       if (dist < 38 && Math.abs(s.lateral - o.lateral) < o.radius + 1.8) blocked = true;
-    }
+    };
+    for (const o of track.obstacles) consider(o);
+    // The plough and rolling logs are steered round the same way; rocks crossing the road can't be planned for.
+    for (const m of world.hazards.movers) if (m.kind !== 'rock') consider(m);
     this.lane += (want - this.lane) * Math.min(1, (dodging ? 8 : 1.8) * dt);
 
     const tx = track.px[ti] + track.lx[ti] * this.lane;
@@ -107,6 +111,25 @@ export class AIDriver {
     // Braver riders carry more speed over the bumps.
     target = Math.min(target, caution * (0.8 + 0.25 * cfg.corner));
     if (blocked) target = Math.min(target, Math.max(16, speed * 0.8));
+    // A drawbridge that will be up by the time we get there: stop short of it and wait.
+    let waiting = false;
+    for (const c of track.crossings) {
+      if (c.kind !== 'drawbridge') continue;
+      let gap = c.idx - s.idx;
+      if (track.closed) {
+        if (gap < -track.n / 2) gap += track.n;
+        else if (gap > track.n / 2) gap -= track.n;
+      }
+      const toBank = gap * track.ds - c.half;
+      if (toBank < -1 || toBank > 150) continue;
+      const pace = Math.max(speed, 9);
+      const eta = toBank / pace;
+      const across = (c.half * 2 + 5) / pace;
+      if (bridgeAngle(c, time + eta) > 0.02 || bridgeAngle(c, time + eta + across) > 0.02) {
+        target = Math.min(target, Math.sqrt(2 * 16 * Math.max(0, toBank - 8)));
+        waiting = true;
+      }
+    }
     if (this.coolDown) target = track.closed ? Math.min(target, 16) : 0;
 
     if (speed < target) {
@@ -128,7 +151,7 @@ export class AIDriver {
     inp.boost = this.boostHold;
 
     // Recover if wedged against scenery or lost in the powder.
-    if (!this.coolDown && speed < 2.5) this.stuck += dt;
+    if (!this.coolDown && !waiting && speed < 2.5) this.stuck += dt;
     else this.stuck = 0;
     if (this.stuck > 2.5 || Math.abs(s.lateral) > hw + 30) {
       s.resetToTrack(world);

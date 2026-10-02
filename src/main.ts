@@ -364,7 +364,7 @@ class Game {
       this.race = new Race(world, difficulty, attract, net, this.save.sled, opts);
       this.headlight = null;
       const lit = this.race.player ?? this.race.sleds[0];
-      if (world.theme.night || world.theme.dusk) this.headlight = addHeadlight(lit);
+      if (world.theme.night || world.theme.dusk) this.headlight = addHeadlight(lit, world.theme.night);
       // In the dark every sled shows a headlamp and a tail light.
       if (world.theme.night) this.race.sleds.forEach(addLamps);
       this.commentator.reset();
@@ -1271,8 +1271,9 @@ class Game {
 
 const _v = new THREE.Vector3();
 
-function addHeadlight(sled: Sled) {
-  const light = new THREE.SpotLight(0xfff0cf, 420, 110, 0.5, 0.7, 1.5);
+function addHeadlight(sled: Sled, dark = false) {
+  // In full darkness the beam has to reach far enough to ride by.
+  const light = dark ? new THREE.SpotLight(0xfff0cf, 2600, 190, 0.62, 0.6, 1.35) : new THREE.SpotLight(0xfff0cf, 420, 110, 0.5, 0.7, 1.5);
   light.position.set(0, 1.0, 1.3);
   light.target.position.set(0, 0, 26);
   sled.model.group.add(light, light.target);

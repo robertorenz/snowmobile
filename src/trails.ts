@@ -175,12 +175,12 @@ function trailTexture() {
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
   g.clearRect(0, 0, 64, 64);
-  g.fillStyle = 'rgba(92, 116, 146, 0.5)';
+  g.fillStyle = 'rgba(104, 128, 156, 0.3)';
   g.fillRect(5, 0, 7, 64);
   g.fillRect(52, 0, 7, 64);
-  g.fillStyle = 'rgba(92, 116, 146, 0.3)';
+  g.fillStyle = 'rgba(104, 128, 156, 0.16)';
   g.fillRect(21, 0, 22, 64);
-  g.fillStyle = 'rgba(70, 92, 120, 0.42)';
+  g.fillStyle = 'rgba(84, 106, 134, 0.22)';
   for (let y = 0; y < 64; y += 16) g.fillRect(21, y, 22, 6);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapT = THREE.RepeatWrapping;

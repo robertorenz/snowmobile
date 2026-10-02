@@ -9,6 +9,8 @@ import { makeNoise } from './noise';
 import { Ambient } from './ambient';
 import { QUALITY, QualityDef } from './quality';
 import { SnowTrails } from './trails';
+import { Hazards, bridgeAngle, bridgeRed, BRIDGE_RIDEABLE } from './hazards';
+import type { Crossing } from './track';
 
 export interface Collider {
   x: number;
@@ -175,6 +177,12 @@ export class World {
   /** Clock for the wind in the trees. */
   private wind = { value: 0 };
   readonly pickups: Pickup[] = [];
+  /** Ploughs, rockfalls and rolling logs. */
+  hazards!: Hazards;
+  /** The race clock, as last set. Everything that moves on the course runs off it. */
+  raceTime = 0;
+  /** Each drawbridge: where it is, which way it runs, and how far its leaves are lifted right now. */
+  private draws: { c: Crossing; x: number; z: number; tx: number; tz: number; hw: number; angle: number; a: THREE.Group; b: THREE.Group; lamps: THREE.MeshStandardMaterial }[] = [];
   /** Sled trails and the packed racing line. */
   readonly trails: SnowTrails;
   /** 0 clear to 1 thick: how heavy the weather is right now. */
@@ -231,6 +239,7 @@ export class World {
     this.buildSky();
     this.buildScenery();
     this.ambient = new Ambient(this, this.quality.extras);
+    this.hazards = new Hazards(this);
   }
 
   private buildSky() {
@@ -821,6 +830,7 @@ export class World {
 
     this.buildStructures();
     this.buildCrossings();
+    this.buildShortcutSigns();
     this.buildPickups();
 
     // --- Start / finish gates ---
@@ -920,6 +930,17 @@ export class World {
    */
   ground(x: number, z: number, idx: number) {
     const t = this.track;
+    for (const d of this.draws) {
+      const rx = x - d.x;
+      const rz = z - d.z;
+      if (Math.abs(rx) + Math.abs(rz) > 60) continue;
+      const along = rx * d.tx + rz * d.tz;
+      const half = d.c.half;
+      if (Math.abs(along) > half + 0.6 || Math.abs(rx * d.tz - rz * d.tx) > d.hw) continue;
+      // Lifted past the point of riding, there is nothing here but the river.
+      if (d.angle > BRIDGE_RIDEABLE) break;
+      return d.c.y + Math.tan(d.angle) * Math.max(0, half - Math.abs(along));
+    }
     if (t.bridge[idx]) {
       const rx = x - t.px[idx];
       const rz = z - t.pz[idx];
@@ -931,7 +952,22 @@ export class World {
     return this.terrain.height(x, z);
   }
 
+  /** How far a drawbridge's leaves are lifted right now, in radians. */
+  bridgeAngleOf(c: Crossing) {
+    return bridgeAngle(c, this.raceTime);
+  }
+
   groundNormal(x: number, z: number, idx: number, out: THREE.Vector3) {
+    for (const d of this.draws) {
+      const rx = x - d.x;
+      const rz = z - d.z;
+      if (Math.abs(rx) + Math.abs(rz) > 60) continue;
+      const along = rx * d.tx + rz * d.tz;
+      if (Math.abs(along) > d.c.half + 0.6 || Math.abs(rx * d.tz - rz * d.tx) > d.hw || d.angle > BRIDGE_RIDEABLE) continue;
+      // A leaf slopes up toward the middle of the bridge.
+      const slope = -Math.sign(along) * Math.tan(d.angle);
+      return out.set(-d.tx * slope, 1, -d.tz * slope).normalize();
+    }
     if (!this.track.bridge[idx]) return this.terrain.normal(x, z, out);
     const t = this.track;
     // The deck is flat across and tilted along its length.
@@ -1164,7 +1200,8 @@ export class World {
         this.scene.add(post, board);
       }
 
-      if (c.kind === 'river') {
+      if (c.kind === 'river' || c.kind === 'drawbridge') {
+        if (c.kind === 'drawbridge') this.buildDrawbridge(c, node);
         const water = new THREE.Mesh(
           new THREE.PlaneGeometry(190, c.half * 2 + 8).rotateX(-Math.PI / 2),
           new THREE.MeshStandardMaterial({
@@ -1288,8 +1325,101 @@ export class World {
     this.setRaceTime(0);
   }
 
+  /** A bridge in two leaves that lift from the banks, with a tower at each corner and warning lamps. */
+  private buildDrawbridge(c: Crossing, node: THREE.Group) {
+    const track = this.track;
+    const i = c.idx;
+    const hw = track.hw[i];
+    const deck = new THREE.MeshStandardMaterial({ color: 0x5b4a3a, roughness: 0.9 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0x2d3945, roughness: 0.6, metalness: 0.5 });
+    const rail = new THREE.MeshStandardMaterial({ color: 0xf6a821, roughness: 0.6 });
+    const lamps = new THREE.MeshStandardMaterial({ color: 0x2fbf71, emissive: 0x2fbf71, emissiveIntensity: 2.5 });
+    const leaf = (dir: 1 | -1) => {
+      const hinge = new THREE.Group();
+      hinge.position.set(0, 0, -dir * c.half);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 0.4, c.half), deck);
+      slab.position.set(0, -0.2, (dir * c.half) / 2);
+      slab.castShadow = slab.receiveShadow = true;
+      hinge.add(slab);
+      for (const side of [1, -1]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, c.half), rail);
+        bar.position.set(side * (hw - 0.2), 0.9, (dir * c.half) / 2);
+        const kerb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, c.half), steel);
+        kerb.position.set(side * (hw - 0.2), 0.25, (dir * c.half) / 2);
+        hinge.add(bar, kerb);
+      }
+      node.add(hinge);
+      return hinge;
+    };
+    const a = leaf(1);
+    const b = leaf(-1);
+    for (const z of [-c.half - 1.2, c.half + 1.2]) {
+      for (const side of [1, -1]) {
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(1.1, 7.5, 1.1), steel);
+        tower.position.set(side * (hw + 0.9), 2.2, z);
+        tower.castShadow = true;
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8), lamps);
+        lamp.position.set(side * (hw + 0.9), 6.3, z);
+        node.add(tower, lamp);
+      }
+    }
+    this.draws.push({ c, x: track.px[i], z: track.pz[i], tx: track.tx[i], tz: track.tz[i], hw, angle: 0, a, b, lamps });
+  }
+
+  /** Signs at the mouth of each shortcut. */
+  private buildShortcutSigns() {
+    const { track, terrain } = this;
+    if (!track.shortcuts.length) return;
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 96;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#f6a821';
+    g.fillRect(0, 0, 256, 96);
+    g.fillStyle = '#12283d';
+    g.font = '900 44px "Segoe UI", Arial, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('SHORTCUT', 128, 52);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const face = new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: this.theme.night ? 0.9 : 0.3, roughness: 0.7, side: THREE.DoubleSide });
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x2a3440, roughness: 0.7 });
+    for (const sc of track.shortcuts) {
+      // Far enough along that the shortcut has parted from the road.
+      const k = Math.round(sc.n * 0.2);
+      const tx = sc.x[k + 1] - sc.x[k - 1];
+      const tz = sc.z[k + 1] - sc.z[k - 1];
+      const tl = Math.hypot(tx, tz) || 1;
+      for (const side of [1, -1]) {
+        const x = sc.x[k] + (tz / tl) * side * (sc.hw + 1.2);
+        const z = sc.z[k] - (tx / tl) * side * (sc.hw + 1.2);
+        const y = terrain.height(x, z);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.6, 0.14), postMat);
+        post.position.set(x, y + 1.8, z);
+        const board = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.86, 0.08), face);
+        board.position.set(x, y + 3.3, z);
+        board.rotation.y = Math.atan2(tx, tz);
+        post.castShadow = board.castShadow = true;
+        this.scene.add(post, board);
+      }
+    }
+  }
+
   /** Moves highway traffic to where it is at the given race time. */
   setRaceTime(t: number) {
+    this.raceTime = t;
+    this.hazards?.setTime(t);
+    for (const d of this.draws) {
+      d.angle = bridgeAngle(d.c, t);
+      d.a.rotation.x = -d.angle;
+      d.b.rotation.x = d.angle;
+      const red = bridgeRed(d.c, t);
+      d.lamps.color.setHex(red ? 0xe5484d : 0x2fbf71);
+      // Red flashes; green is steady.
+      d.lamps.emissive.setHex(red ? 0xe5484d : 0x2fbf71);
+      d.lamps.emissiveIntensity = red ? (Math.sin(t * 12) > 0 ? 3.5 : 0.6) : 2.5;
+    }
     const span = ROAD_HALF * 2;
     for (const v of this.vehicles) {
       const along = ((((v.phase + t * v.speed) % span) + span) % span) - ROAD_HALF;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ALL_SURFACES } from './tracks';
-import type { TrackDef, JumpDef, CrossingKind, SurfaceOptions } from './tracks';
+import type { TrackDef, JumpDef, CrossingKind, ShortcutDef, SurfaceOptions } from './tracks';
 import { mulberry32, smoothstep, wrapAngle } from './util';
 
 /** Distance between centerline samples, in metres (approximate). */
@@ -11,7 +11,7 @@ const OPEN_RUNOFF = 100;
 const MIN_WIDTH = 8;
 
 /** Half the length (along the track) of the gap each kind of crossing leaves to jump. */
-const CROSSING_HALF: Record<CrossingKind, number> = { river: 6, chasm: 8, highway: 7.5, gate: 0 };
+const CROSSING_HALF: Record<CrossingKind, number> = { river: 6, chasm: 8, highway: 7.5, gate: 0, drawbridge: 8 };
 /** How far past the ramp's lip a gate stands. */
 const GATE_DISTANCE = 16;
 /** Height of a gate's top rail: a sled lower than this when it gets there has hit it. */
@@ -39,6 +39,24 @@ export const ICE = 1;
 export const SHALE = 2;
 export const ROCK = 3;
 export const GRASS = 4;
+
+/** A shortcut as built: its own line of samples from one point of the course to a later one. */
+export interface Shortcut {
+  /** Samples of the road where it leaves and where it rejoins, and how many lie between. */
+  from: number;
+  to: number;
+  span: number;
+  n: number;
+  x: Float32Array;
+  y: Float32Array;
+  z: Float32Array;
+  hw: number;
+  ice: boolean;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
 
 /** Something solid sitting on the racing surface. */
 export interface Obstacle {
@@ -188,8 +206,9 @@ export class Track {
     for (const c of def.crossings ?? []) {
       const s = c.at * len;
       const half = CROSSING_HALF[c.kind];
-      const lipS = c.kind === 'gate' ? s - GATE_DISTANCE : s - half - 3;
-      this.ramps.push({ at: lipS / len, ...RAMP });
+      // A drawbridge is ridden across, not jumped: no ramp, and its "lip" is the near bank.
+      const lipS = c.kind === 'gate' ? s - GATE_DISTANCE : c.kind === 'drawbridge' ? s - half : s - half - 3;
+      if (c.kind !== 'drawbridge') this.ramps.push({ at: lipS / len, ...RAMP });
       this.crossings.push({ kind: c.kind, idx: Math.round(s / this.ds), s, half, lipS, y: 0 });
     }
 
@@ -232,7 +251,7 @@ export class Track {
     for (let i = 0; i < n; i++) this.respawn[i] = i;
     for (const c of this.crossings) {
       c.y = this.py[c.idx];
-      const back = Math.max(0, Math.round((c.lipS - RESPAWN_RUNUP) / this.ds));
+      const back = Math.max(0, Math.round((c.lipS - (c.kind === 'drawbridge' ? 45 : RESPAWN_RUNUP)) / this.ds));
       for (let i = 0; i < n; i++) {
         const s = i * this.ds;
         if (s > c.lipS - 26 && s < c.s + c.half + 8) this.respawn[i] = back;
@@ -312,6 +331,8 @@ export class Track {
       this.curv[i] = sum / (2 * R + 1);
     }
 
+    for (const sc of def.shortcuts ?? []) this.shortcuts.push(this.buildShortcut(sc));
+
     if (this.closed) {
       this.startIdx = 0;
       this.finishIdx = 0;
@@ -328,6 +349,87 @@ export class Track {
     this.surfSide = new Int8Array(n);
     this.surfFade = new Float32Array(n);
     this.placeSurfaces();
+  }
+
+  /** Shortcuts across country: see TrackDef.shortcuts. */
+  readonly shortcuts: Shortcut[] = [];
+  /** Filled in by shortcutAt: how far along the shortcut the point is (0..1), and how far to the left of its centre. */
+  scT = 0;
+  scLat = 0;
+
+  /**
+   * Lays a shortcut out as a smooth curve that leaves the road heading the
+   * way the road is going and joins it again the same way.
+   */
+  private buildShortcut(def: ShortcutDef): Shortcut {
+    const a = this.wrap(Math.round(def.from * this.n));
+    const b = this.wrap(Math.round(def.to * this.n));
+    const span = this.closed ? (b - a + this.n) % this.n : b - a;
+    const chord = Math.hypot(this.px[b] - this.px[a], this.pz[b] - this.pz[a]);
+    const m = chord * 0.5;
+    const n = Math.max(8, Math.ceil((chord * 1.1) / 2));
+    const hw = (def.width ?? 7) / 2;
+    const sc: Shortcut = {
+      from: a,
+      to: b,
+      span,
+      n,
+      x: new Float32Array(n),
+      y: new Float32Array(n),
+      z: new Float32Array(n),
+      hw,
+      ice: def.surface === 'ice',
+      minX: Infinity,
+      maxX: -Infinity,
+      minZ: Infinity,
+      maxZ: -Infinity,
+    };
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1);
+      const u2 = u * u;
+      const u3 = u2 * u;
+      const h00 = 2 * u3 - 3 * u2 + 1;
+      const h10 = u3 - 2 * u2 + u;
+      const h01 = -2 * u3 + 3 * u2;
+      const h11 = u3 - u2;
+      sc.x[k] = h00 * this.px[a] + h10 * m * this.tx[a] + h01 * this.px[b] + h11 * m * this.tx[b];
+      sc.z[k] = h00 * this.pz[a] + h10 * m * this.tz[a] + h01 * this.pz[b] + h11 * m * this.tz[b];
+      sc.y[k] = this.py[a] + (this.py[b] - this.py[a]) * h01;
+      sc.minX = Math.min(sc.minX, sc.x[k] - hw - 2);
+      sc.maxX = Math.max(sc.maxX, sc.x[k] + hw + 2);
+      sc.minZ = Math.min(sc.minZ, sc.z[k] - hw - 2);
+      sc.maxZ = Math.max(sc.maxZ, sc.z[k] + hw + 2);
+    }
+    return sc;
+  }
+
+  /** The shortcut a point is on, if any. Also sets scT and scLat. */
+  shortcutAt(x: number, z: number): Shortcut | null {
+    for (const sc of this.shortcuts) {
+      if (x < sc.minX || x > sc.maxX || z < sc.minZ || z > sc.maxZ) continue;
+      let best = Infinity;
+      let bk = 0;
+      for (let k = 0; k < sc.n; k++) {
+        const dx = x - sc.x[k];
+        const dz = z - sc.z[k];
+        const d = dx * dx + dz * dz;
+        if (d < best) {
+          best = d;
+          bk = k;
+        }
+      }
+      const reach = sc.hw + 1.2;
+      if (best > reach * reach) continue;
+      const k0 = Math.max(0, bk - 1);
+      const k1 = Math.min(sc.n - 1, bk + 1);
+      const tx = sc.x[k1] - sc.x[k0];
+      const tz = sc.z[k1] - sc.z[k0];
+      const tl = Math.hypot(tx, tz) || 1;
+      this.scT = bk / (sc.n - 1);
+      this.scLat = ((x - sc.x[bk]) * tz - (z - sc.z[bk]) * tx) / tl;
+      return sc;
+    }
+    return null;
   }
 
   /** The surface a sled at sample i, offset sideways by lateral, is riding on. */
@@ -449,6 +551,7 @@ export class Track {
       if (taken.some((t) => Math.abs(t - s) < 70)) continue;
       // Keep run-ups and landing zones clear.
       if (this.ramps.some((j) => s > j.at * len - 130 && s < j.at * len + 110)) continue;
+      if (this.crossings.some((c) => c.kind === 'drawbridge' && Math.abs(s - c.s) < 110)) continue;
       if ((def.rollers ?? []).some((r) => s > r.at * len - 20 && s < r.at * len + r.length + 30)) continue;
       const idx = this.wrap(Math.round(s / this.ds));
       const hw = this.hw[idx];

@@ -36,6 +36,26 @@ for (const def of TRACKS) {
     for (let i = Math.round((c.s - 110) / t.ds); i < (c.s + 70) / t.ds; i++) k = Math.max(k, Math.abs(t.curv[t.wrap(i)]));
     console.log(`    ${c.kind.padEnd(8)} at s=${c.s.toFixed(0).padStart(5)}  tightest radius nearby ${(1 / Math.max(k, 1e-5)).toFixed(0)} m  width ${(t.hw[c.idx] * 2).toFixed(0)} m`);
   }
+  // Shortcuts: how much road they save, how steep they are, and how close their middle comes to the road.
+  for (const sc of t.shortcuts) {
+    let run = 0;
+    let steep = 0;
+    let clear = Infinity;
+    for (let k = 1; k < sc.n; k++) {
+      const d = Math.hypot(sc.x[k] - sc.x[k - 1], sc.z[k] - sc.z[k - 1]);
+      run += d;
+      steep = Math.max(steep, Math.abs(sc.y[k] - sc.y[k - 1]) / d);
+      const u = k / (sc.n - 1);
+      if (u < 0.2 || u > 0.8) continue;
+      for (let i = 0; i < t.n; i += 2) {
+        // The road it has just left and is about to join is meant to be close; anything else isn't.
+        const into = t.closed ? (i - sc.from + t.n) % t.n : i - sc.from;
+        if ((into > -50 && into < sc.span * 0.3) || (into > sc.span * 0.7 && into < sc.span + 50) || into > t.n - 50) continue;
+        clear = Math.min(clear, Math.hypot(sc.x[k] - t.px[i], sc.z[k] - t.pz[i]) - t.hw[i] - sc.hw);
+      }
+    }
+    console.log(`    shortcut ${(sc.from / t.n).toFixed(3)}-${(sc.to / t.n).toFixed(3)}  ${run.toFixed(0)} m against ${(sc.span * t.ds).toFixed(0)} m by road  steepest ${(steep * 100).toFixed(0)}%  ${sc.ice ? 'ice' : 'snow'} ${(sc.hw * 2).toFixed(0)} m wide  clear of the road by ${clear.toFixed(0)} m`);
+  }
   // Bridges and tunnels: where they fall along the lap, and how much headroom the road underneath gets.
   for (const [a, b] of t.bridgeSpans) {
     const mid = (a + b) >> 1;
