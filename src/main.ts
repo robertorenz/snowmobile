@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import './style.css';
 import { TRACKS, CUPS, CUP_POINTS, MEDAL_FACTORS, Difficulty, ALL_SURFACES, SurfaceOptions, Conditions, NORMAL_CONDITIONS, themeFor } from './tracks';
 import { Commentator } from './commentary';
+import { BUILTIN_TRACKS } from './tracks';
+import { TrackEditor } from './editor';
+import { loadCustomTracks, registerTrack, unregisterTrack, customSource, clean } from './custom';
 import { Podium } from './podium';
 import { World } from './world';
 import { Race, NetRace, RaceOptions, RACERS, AI_NAMES, RIDER_COLORS, aiSled } from './race';
@@ -81,7 +84,11 @@ class Game {
     this.audio.muted = this.save.muted;
     this.audio.setMusic(this.save.music);
 
+    // Tracks made in the editor join the list after the game's own.
+    for (const c of loadCustomTracks()) registerTrack(c);
+
     this.ui = new UI(document.getElementById('ui')!, this.save, {
+      onEditor: () => this.openEditor(),
       onSelectTrack: (i) => {
         if (!this.net) this.save.lastTrack = i;
         writeSave(this.save);
@@ -115,7 +122,7 @@ class Game {
         this.save.night = night;
         writeSave(this.save);
         // Show the new season behind the menu.
-        if (this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
+        if (this.mode === 'menu') void this.load(this.net ? this.lobbyTrack() : this.ui.selectedTrack, true);
       },
       onMode: (mode) => {
         this.save.mode = mode;
@@ -209,7 +216,7 @@ class Game {
         this.save.surfaces[key] = on;
         writeSave(this.save);
         // A surface change means a different road: rebuild the one behind the menu.
-        if (this.mode === 'menu') void this.load(this.net ? this.net.lobby.track : this.ui.selectedTrack, true);
+        if (this.mode === 'menu') void this.load(this.net ? this.lobbyTrack() : this.ui.selectedTrack, true);
       },
     });
 
@@ -386,6 +393,57 @@ class Game {
     }
   }
 
+  // ---------- Track editor ----------
+
+  private editor: TrackEditor | null = null;
+  /** True while racing a track straight from the editor, so quitting goes back to it. */
+  private fromEditor = false;
+
+  /** The track the room's host has chosen, or the first track if it is one of theirs that this computer doesn't have. */
+  private lobbyTrack() {
+    const i = this.net?.lobby.track ?? 0;
+    return i < TRACKS.length ? i : 0;
+  }
+
+  private openEditor() {
+    if (this.net) return;
+    if (!this.editor) {
+      this.editor = new TrackEditor({
+        onSaved: (track) => {
+          const index = registerTrack(track);
+          // The course may have changed shape: don't reuse what was built before.
+          if (TRACKS[this.trackIndex]?.id === track.id) this.worldKey = '';
+          this.ui.selectTrack(index);
+        },
+        onDeleted: (id) => {
+          unregisterTrack(id);
+          this.ui.selectTrack(0);
+          this.save.lastTrack = 0;
+          writeSave(this.save);
+          void this.load(0, true);
+        },
+        onTest: (track) => {
+          const index = registerTrack(track);
+          this.worldKey = '';
+          this.editor?.show(false);
+          this.fromEditor = true;
+          this.champ = null;
+          if (this.save.mode === 'championship') this.save.mode = 'race';
+          void this.startRace(index);
+        },
+        onClose: () => {
+          this.editor?.show(false);
+          this.ui.showMenu(true);
+        },
+        confirm: (title, message, yes, onYes) => this.ui.showConfirm(title, message, yes, onYes),
+      });
+      this.ui.mount(this.editor.el);
+    }
+    this.ui.closeModal();
+    this.ui.showMenu(false);
+    this.editor.show(true);
+  }
+
   /** The key of the world that is built: track, season and time of day. */
   private worldKey = '';
 
@@ -427,9 +485,13 @@ class Game {
     this.ui.showHud(false);
     this.mode = 'menu';
     this.paused = false;
-    await this.load(this.net ? this.net.lobby.track : this.trackIndex, true);
-    this.ui.showMenu(true);
+    await this.load(this.net ? this.lobbyTrack() : Math.min(this.trackIndex, TRACKS.length - 1), true);
     this.syncRoom();
+    // Back from trying out a track: return to the editor rather than the menu.
+    if (this.fromEditor && !this.net) {
+      this.fromEditor = false;
+      this.openEditor();
+    } else this.ui.showMenu(true);
   }
 
   private setPaused(p: boolean) {
@@ -509,7 +571,7 @@ class Game {
       code: net.code,
       isHost: net.isHost,
       racing: net.lobby.racing && this.mode === 'menu',
-      track: net.lobby.track,
+      track: this.lobbyTrack(),
       difficulty: net.lobby.difficulty,
       players: net.lobby.players.map((p, i) => ({ name: p.name, me: p.id === net.myId, host: i === 0 })),
     };
@@ -534,7 +596,7 @@ class Game {
     net.onLobby = () => {
       this.syncRoom();
       // Guests follow the host's track choice on the menu backdrop.
-      if (!net.isHost && this.mode === 'menu' && net.lobby.track !== this.trackIndex) void this.load(net.lobby.track, true);
+      if (!net.isHost && this.mode === 'menu' && this.lobbyTrack() !== this.trackIndex) void this.load(this.lobbyTrack(), true);
     };
     net.onStart = (msg) => void this.startOnline(msg);
     net.onGo = () => {
@@ -585,6 +647,9 @@ class Game {
     humans.forEach((p, i) => grid.push({ kind: 'human', id: p.id, name: p.name, color: RIDER_COLORS[i], sled: p.sled }));
     const msg: StartMsg = { t: 'start', track, difficulty: this.save.difficulty, grid, surfaces: { ...this.save.surfaces }, cond: this.conditions() };
     if (this.champ) msg.cup = { cup: this.champ.cup, race: this.champ.race };
+    // A track from the editor goes along with the start signal, since the others won't have it.
+    const own = customSource(TRACKS[track].id);
+    if (own) msg.custom = own;
     net.hostStart(msg);
     void this.startOnline(msg);
   }
@@ -603,12 +668,25 @@ class Game {
     await this.whenIdle();
     this.ui.closeModal();
     this.ui.showMenu(false);
-    await this.load(msg.track, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost }, msg.surfaces ?? ALL_SURFACES, {}, msg.cond ?? NORMAL_CONDITIONS);
+    let index = msg.track;
+    if (msg.custom) {
+      // The host is racing a track of their own: take a copy of it for this session.
+      const track = clean(msg.custom);
+      if (!track) {
+        this.ui.showMenu(true);
+        this.ui.showNotice('Track not loaded', 'The host started a custom track that this computer could not read.');
+        return;
+      }
+      index = registerTrack(track);
+      this.worldKey = '';
+    }
+    if (!TRACKS[index]) index = 0;
+    await this.load(index, false, msg.difficulty, { grid: msg.grid, localId: net.myId, isHost: net.isHost }, msg.surfaces ?? ALL_SURFACES, {}, msg.cond ?? NORMAL_CONDITIONS);
     this.mode = 'race';
     this.paused = false;
     this.netTimer = 0;
-    this.ui.selectTrack(msg.track);
-    this.ui.showHud(true, TRACKS[msg.track]);
+    this.ui.selectTrack(index);
+    this.ui.showHud(true, TRACKS[index]);
     net.sendReady();
   }
 
@@ -1050,11 +1128,11 @@ class Game {
       };
     }
     const nextIndex = this.trackIndex + 1;
-    if (!online && player.place <= 3 && nextIndex < TRACKS.length && this.save.unlocked <= nextIndex) {
+    if (!online && player.place <= 3 && nextIndex < BUILTIN_TRACKS && this.save.unlocked <= nextIndex) {
       this.save.unlocked = nextIndex + 1;
       base.unlockedName = TRACKS[nextIndex].name;
     }
-    base.hasNext = nextIndex < TRACKS.length && this.save.unlocked > nextIndex;
+    base.hasNext = nextIndex < BUILTIN_TRACKS && this.save.unlocked > nextIndex;
 
     // Championship: add this race's points and show the table.
     const c = this.champ;

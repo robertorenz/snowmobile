@@ -51,6 +51,8 @@ export interface StartMsg {
   surfaces: SurfaceOptions;
   /** The host's season and time of day. */
   cond?: Conditions;
+  /** A track from the host's editor, when that is what's being raced. Checked before use. */
+  custom?: unknown;
 }
 
 type Msg =

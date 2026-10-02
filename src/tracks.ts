@@ -66,6 +66,8 @@ export type HazardDef =
   | { kind: 'logs'; from: number; to: number; count?: number };
 
 export interface TrackDef {
+  /** Made in the track editor rather than shipped with the game. */
+  custom?: boolean;
   id: string;
   name: string;
   blurb: string;
@@ -256,6 +258,10 @@ const AUTUMN: Theme = {
   trackTint: 0xeef2f5,
   autumn: true,
 };
+
+/** The settings a track made in the editor can have. */
+export const THEMES = { day: DAY, dusk: GOLDEN, glacier: GLACIER, night: NIGHT, blizzard: BLIZZARD, meadow: MEADOW };
+export type ThemeName = keyof typeof THEMES;
 
 /** What a race is run in, on top of the track's own design: a season, and day or night. */
 export type Season = 'default' | 'winter' | 'spring' | 'autumn';
@@ -1166,6 +1172,9 @@ export interface CupDef {
   blurb: string;
   tracks: number[];
 }
+
+/** How many tracks ship with the game. Tracks made in the editor are added to the list after these. */
+export const BUILTIN_TRACKS = TRACKS.length;
 
 export const CUPS: CupDef[] = [
   { id: 'valley', name: 'Valley Cup', blurb: 'The gentler circuits.', tracks: [0, 5, 1, 6] },

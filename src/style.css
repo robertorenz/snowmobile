@@ -1518,3 +1518,138 @@ kbd {
 .standings.records .time-main {
   font-weight: 800;
 }
+
+/* ---------- Track editor ---------- */
+
+.editor {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  padding: 20px 24px;
+  background: var(--navy-900, #081522);
+  pointer-events: auto;
+  overflow: hidden;
+}
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.editor-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+.brand-mark.small {
+  font-size: 24px;
+}
+.editor-tip {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.editor-map {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.editor-profile {
+  height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.editor-side {
+  width: 370px;
+  flex: none;
+  overflow-y: auto;
+  padding: 4px 10px 20px 4px;
+}
+.editor-side .section-label {
+  margin: 18px 0 8px;
+}
+.editor-side select,
+.editor-side input[type='text'] {
+  width: 100%;
+  padding: 9px 11px;
+  color: var(--white);
+  font: inherit;
+  font-size: 14px;
+  background: rgba(6, 15, 25, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.editor-side select option {
+  background: #0d2032;
+}
+.segmented.two {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 12px;
+}
+.ed-range {
+  display: block;
+  margin-bottom: 10px;
+}
+.ed-range span {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ed-range b {
+  color: var(--white);
+}
+.ed-range input {
+  width: 100%;
+  accent-color: var(--amber);
+}
+.setting.compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+.ed-palette,
+.ed-features,
+.ed-list,
+.ed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ed-features,
+.ed-actions {
+  margin-top: 10px;
+}
+.ed-features .chip button {
+  margin-left: 6px;
+  padding: 0 2px;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button.chip {
+  font: inherit;
+  cursor: pointer;
+}
+.ed-stats,
+.ed-note,
+.ed-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+.ed-status {
+  min-height: 1.3em;
+  margin-top: 8px;
+}
+.note.bad {
+  color: #ffb1b3;
+  border-color: rgba(229, 72, 77, 0.55);
+  background: rgba(229, 72, 77, 0.12);
+}

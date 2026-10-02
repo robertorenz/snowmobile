@@ -103,6 +103,28 @@ The menu's **Mode** switch chooses what the Race button starts.
 
 **Photo mode:** pause a solo race and choose Photo mode to swing the camera round the sled and save a picture.
 
+### Commentary, slow motion and the podium
+
+- **Commentary:** a commentator calls the start, lead changes, places gained and lost, big jumps, flips, hits and the finish along the bottom of the screen. It can also be read aloud in the voice built into your browser.
+- **Slow motion:** in a solo race, a big jump, a near miss with highway traffic or a close finish slows down for a moment. At most once every twelve seconds.
+- **Podium:** a solo race ends with the top three on a podium at the finish line before the results. Press Continue, Enter or Esc to move on.
+- **Records:** the menu's Records button lists your five best times on each track, from solo races and time trials. They are kept in your browser on this computer; there is no shared leaderboard, because the game has no server.
+
+Commentary, spoken commentary and slow motion each have a switch in Settings.
+
+## Track editor
+
+The **Editor** button on the menu opens a map to lay out your own course.
+
+- **Shape:** click to add a point, drag to move it, scroll the wheel (or use the Height slider) to raise or lower it, Delete to remove it. The road is drawn through the points and coloured by height, with a height profile underneath.
+- **Settings:** circuit or point-to-point, laps, road width, one of six settings (winter day, dusk, glacier, night, blizzard, spring meadow), mountain height, number of trees, rocks and logs on the road, and a snowplough.
+- **Features:** pick one, then click on the course to place it: jump, big hill, rollers, river jump, chasm, gate, highway, drawbridge, tunnel, rockfall or rolling logs.
+- **Check:** the editor measures the course as you work and says what has to be fixed before it can be raced: under 500 m or over 5 km, a corner tighter than 16 m, a slope over 60%, or two stretches within 70 m of each other. A course can't cross over itself.
+- **Race it:** "Save and race it" starts a race on the track; quitting the race brings you back to the editor. Saved tracks appear at the end of the track list, always unlocked, and work in every solo mode.
+- **Share it:** "Copy this track's code" puts the track on the clipboard as a line of text. A friend pastes it into their editor and presses Load.
+
+Tracks are saved in your browser on this computer. If you host an online room and start a race on one of your tracks, it is sent to the other players with the start signal.
+
 ## Snowmobiles
 
 Pick one from the menu before racing (**Snowmobile → Change**). Each has its own shape and its own handling.
@@ -227,6 +249,59 @@ A restart puts you about 95 m before the ramp, at a standstill, which is enough 
 | ![Clearing a gate on Farm Gates](docs/screenshots/farm-gates.jpg) | ![Jumping traffic on Highway Hop](docs/screenshots/highway-hop.jpg) |
 | Farm Gates | Highway Hop |
 
+### Drawbridges
+
+Thaw Meadow and the second river on River Leap are crossed by a drawbridge instead of a jump. It lifts on a timer: down for about nine seconds, then up for about six. The lamps on its towers are green while it is safe and flash red from two seconds before it starts to lift.
+
+- **Down:** ride across.
+- **Just starting to lift:** the leaves are a ramp, and you can jump off them.
+- **Up:** it is a wall. Stop at the bank and wait, or you bounce off it.
+- **On it when it goes up:** you drop into the river and restart 45 m back.
+
+The AI riders time their approach and wait at the bank when they have to.
+
+### Shortcuts
+
+Five tracks have a shortcut: a narrow way cut across country that leaves the road at a "SHORTCUT" sign and rejoins it further on.
+
+| Track | Road | Shortcut | Surface |
+|---|---|---|---|
+| Pine Meadow | 394 m | 278 m | Snow |
+| Frostbite Ridge | 394 m | 267 m, dropping at up to 32% | Ice |
+| Aurora Pass | 434 m | 254 m | Snow |
+| The Corkscrew | 354 m | 247 m | Snow |
+| Widowmaker | 378 m | 260 m | Ice |
+
+A shortcut is 7 or 8 m wide, against 20 m or more for the road, with trees and rocks right at its edge and deep snow either side. The AI riders keep to the road, so it is yours to gamble on.
+
+### Moving hazards
+
+| Hazard | Where | What it does |
+|---|---|---|
+| Snowplough | Pine Meadow, Highway Hop | Crawls round the course in one lane at about 30 km/h. Solid: run into it and you bounce off |
+| Rockfall | Glacier Run, Devil's Canyon, Widowmaker | Boulders come bounding across a stretch of road, one chute after another. Get in the way of one and it knocks you about |
+| Rolling logs | Whiteout Summit, Farm Gates | Logs roll down a stretch of road toward you, each in a different lane every time. They can be jumped |
+
+All of them run off the race clock, so everyone in an online race sees them in the same place.
+
+### Seasons and night
+
+Under **Season and light** on the menu, any track can be run in a different season, and by day or at night.
+
+| Setting | What it does |
+|---|---|
+| Set | Each track as it was designed |
+| Winter | Snow everywhere, including the meadow tracks |
+| Spring | Green meadow with snow only on the road |
+| Autumn | Dry grass, with the broadleaf trees turned gold, orange and red |
+| Night | Added to any of the above: a dark sky with stars and aurora, and fog that hides everything your headlight doesn't reach. Every sled shows a headlamp and a red tail light |
+
+A season changes which surface patches appear on the road, so times in different seasons aren't quite comparable. In an online room the host's choice is used for everyone.
+
+### Snow that remembers
+
+Every sled leaves a trail in the snow that stays for the race. The snow under it packs down too: about three passes over the same line and it is fully packed, which is worth 5% more top speed. "PACKED SNOW" shows on the HUD while you are on it. So the racing line gets quicker as the race goes on, and following where others have been pays. Low graphics doesn't draw the trails, but the packed line is still there.
+
 ## Online multiplayer
 
 Up to six people can race each other, each on their own computer.
@@ -261,6 +336,11 @@ The host can run a cup for the room (choose Cup in the Mode switch): four races 
 | `src/race.ts` | Grid, countdown, laps, positions, finish and results. |
 | `src/net.ts` | Online rooms: hosting, joining, lobby and the messages exchanged during a race. |
 | `src/quality.ts` | The graphics levels and the hardware check that chooses one. |
+| `src/trails.ts` | Sled trails in the snow and the packed racing line. |
+| `src/hazards.ts` | The snowplough, rockfalls, rolling logs, and the drawbridge timing. |
+| `src/commentary.ts` | The race commentator. |
+| `src/podium.ts` | The podium scene after a race. |
+| `src/custom.ts`, `src/editor.ts` | Tracks made in the editor: the format, the checks, saving, share codes, and the editor itself. |
 | `src/ui.ts`, `src/style.css` | Menu, HUD, minimap and modal dialogs. |
 | `src/main.ts` | Game loop, camera, and glue between the above. |
 

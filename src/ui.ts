@@ -20,6 +20,8 @@ export interface UICallbacks {
   /** Change graphics level. The game reloads. */
   onQuality(level: Quality | 'auto'): void;
   onMode(mode: GameMode): void;
+  /** Open the track editor. */
+  onEditor(): void;
   /** The season or the time of day was changed on the menu. */
   onConditions(season: Season, night: boolean): void;
   /** Select a paint, buying it first if need be. False if there aren't enough coins. */
@@ -194,7 +196,7 @@ export class UI {
   /** Shows (or clears) the online room on the menu. */
   setRoom(room: RoomView | null) {
     this.room = room;
-    if (room) this.selected = room.track;
+    if (room) this.selected = Math.min(room.track, TRACKS.length - 1);
     else this.selected = Math.min(this.selected, this.save.unlocked - 1);
     this.renderMenu();
   }
@@ -210,7 +212,7 @@ export class UI {
     this.loading = el(`<div class="loading hidden"><div class="spinner"></div><span>Grooming the track…</span></div>`);
     root.append(this.menu, this.hud, this.loading, this.modalLayer);
     this.buildHud();
-    this.selected = Math.min(save.lastTrack, save.unlocked - 1);
+    this.selected = TRACKS[save.lastTrack]?.custom ? save.lastTrack : Math.min(save.lastTrack, save.unlocked - 1);
     this.renderMenu();
   }
 
@@ -233,7 +235,7 @@ export class UI {
     const mode: GameMode = room ? (room.isHost && save.mode === 'championship' ? 'championship' : 'race') : save.mode;
     const cards = TRACKS.map((t, i) => {
       // Every track is open in an online room.
-      const locked = !room && i >= save.unlocked;
+      const locked = !room && !t.custom && i >= save.unlocked;
       const res = save.results[resultKey(t.id, save.difficulty)];
       const trial = mode === 'trial' ? save.trials[t.id] : undefined;
       const meta = locked
@@ -249,7 +251,7 @@ export class UI {
         <button class="track-card ${i === this.selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-track="${i}" ${locked || (guest && i !== this.selected) ? 'disabled' : ''}>
           <canvas width="88" height="88"></canvas>
           <span class="track-text">
-            <span class="track-level">${i + 1}${res && res.bestPlace <= 3 ? `<span class="medal m${res.bestPlace}">${ordinal(res.bestPlace)}</span>` : ''}</span>
+            <span class="track-level">${t.custom ? 'Custom' : i + 1}${res && res.bestPlace <= 3 ? `<span class="medal m${res.bestPlace}">${ordinal(res.bestPlace)}</span>` : ''}</span>
             <span class="track-name">${t.name}</span>
             <span class="track-meta">${meta}</span>
           </span>
@@ -338,6 +340,7 @@ export class UI {
         <div class="menu-foot">
           <button class="btn ghost" data-act="help">How to play</button>
           <button class="btn ghost" data-act="records">Records</button>
+          ${room ? '' : '<button class="btn ghost" data-act="editor">Editor</button>'}
           <button class="btn ghost" data-act="settings">Settings</button>
         </div>
       </div>
@@ -347,7 +350,7 @@ export class UI {
       </div>`;
 
     this.menu.querySelectorAll<HTMLCanvasElement>('.track-card canvas').forEach((c, i) => {
-      drawOutline(c, TRACKS[i], !room && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 4.5, 11);
+      drawOutline(c, TRACKS[i], !room && !TRACKS[i].custom && i >= save.unlocked ? '#5d7387' : '#e9f3fa', 4.5, 11);
     });
     this.menu.querySelector('[data-act="online"]')?.addEventListener('click', () => this.showOnline());
     const chat = this.menu.querySelector<HTMLInputElement>('[data-in="chat"]');
@@ -399,6 +402,7 @@ export class UI {
     this.menu.querySelector('[data-act="start"]')?.addEventListener('click', () => this.cb.onStart());
     this.menu.querySelector('[data-act="help"]')!.addEventListener('click', () => this.showHelp());
     this.menu.querySelector('[data-act="records"]')!.addEventListener('click', () => this.showRecords());
+    this.menu.querySelector('[data-act="editor"]')?.addEventListener('click', () => this.cb.onEditor());
     this.menu.querySelectorAll<HTMLButtonElement>('[data-season]').forEach((b) =>
       b.addEventListener('click', () => {
         if (b.dataset.season === save.season) return;
@@ -785,6 +789,26 @@ export class UI {
   refreshStandings(standings: Standing[]) {
     const table = this.modalLayer.querySelector('.standings');
     if (table) table.innerHTML = standingRows(standings);
+  }
+
+  /** Puts another full-screen panel (the track editor) under the dialogs. */
+  mount(panel: HTMLElement) {
+    this.root.insertBefore(panel, this.modalLayer);
+  }
+
+  /** A yes-or-no question. */
+  showConfirm(title: string, message: string, yes: string, onYes: () => void) {
+    const m = this.openModal(`
+      <h2>${escapeHtml(title)}</h2>
+      <p class="modal-lead">${escapeHtml(message)}</p>
+      <div class="modal-actions"><button class="btn ghost" data-act="no">Cancel</button><button class="btn primary" data-act="yes">${escapeHtml(yes)}</button></div>`);
+    this.bind(m, {
+      no: () => this.closeModal(),
+      yes: () => {
+        this.closeModal();
+        onYes();
+      },
+    });
   }
 
   showNotice(title: string, message: string) {
